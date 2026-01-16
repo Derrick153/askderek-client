@@ -1,0 +1,21 @@
+{
+  "pages": {
+    "/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/layout.css",
+      "static/chunks/app/layout.js"
+    ],
+    "/(nondashboard)/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/(nondashboard)/layout.js"
+    ],
+    "/(nondashboard)/search/[id]/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/(nondashboard)/search/[id]/page.css",
+      "static/chunks/app/(nondashboard)/search/[id]/page.js"
+    ]
+  }
+}
