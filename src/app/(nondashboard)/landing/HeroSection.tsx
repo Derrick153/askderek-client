@@ -29,6 +29,11 @@ const TARKWA_LOCATIONS = [
   "Efuanta",
   "Akoon",
   "Bankyim",
+  "Nzema Line",
+  "Zongo",
+  "Tarkwa & Aboso",
+  "Government Hill",
+  "Teberebe",
 ];
 
 const AUTO_QUERIES = [
@@ -53,7 +58,6 @@ const HeroSection = () => {
   const [queryIndex, setQueryIndex] = useState(0);
   const [charIndex, setCharIndex] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [error, setError] = useState("");
 
   /* ===========================
      TYPEWRITER EFFECT
@@ -88,42 +92,23 @@ const HeroSection = () => {
   }, [charIndex, isDeleting, queryIndex, reduceMotion]);
 
   /* ===========================
-     SEARCH HANDLER
+     SEARCH HANDLER - NO MAPBOX!
   =========================== */
 
-  const handleLocationSearch = async (forcedQuery?: string) => {
+  const handleLocationSearch = (forcedQuery?: string) => {
     const queryToSearch = (forcedQuery || searchQuery).trim();
     if (!queryToSearch) return;
 
-    setError("");
+    // Set filters with location only - backend handles city search
+    dispatch(
+      setFilters({
+        location: queryToSearch,
+        coordinates: [0, 0], // Not needed for city search
+      })
+    );
 
-    try {
-      const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
-          queryToSearch + " Tarkwa Ghana"
-        )}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN}`
-      );
-
-      const data = await response.json();
-
-      if (!data.features?.length) {
-        setError("No verified listings found for this location.");
-        return;
-      }
-
-      const [lng, lat] = data.features[0].center;
-
-      dispatch(
-        setFilters({
-          location: queryToSearch,
-          coordinates: [lat, lng],
-        })
-      );
-
-      router.push(`/search?location=${queryToSearch}&lat=${lat}&lng=${lng}`);
-    } catch {
-      setError("Something went wrong. Please try again.");
-    }
+    // Navigate to search with location parameter
+    router.push(`/search?location=${encodeURIComponent(queryToSearch)}`);
   };
 
   /* ===========================
@@ -190,10 +175,6 @@ const HeroSection = () => {
               Search
             </Button>
           </div>
-
-          {error && (
-            <p className="mt-3 text-xs text-red-400 text-center">{error}</p>
-          )}
         </div>
 
         {/* Trust Signals */}
@@ -220,7 +201,7 @@ const HeroSection = () => {
                 whileTap={{ scale: 0.95 }}
                 transition={{ delay: index * 0.04 }}
                 onClick={() => handleLocationSearch(loc)}
-                className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-xs font-bold uppercase text-slate-300 backdrop-blur-sm"
+                className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-xs font-bold uppercase text-slate-300 backdrop-blur-sm hover:bg-white/10 hover:border-secondary-500/50 transition-all"
               >
                 {loc}
               </motion.button>

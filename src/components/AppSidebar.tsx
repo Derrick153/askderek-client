@@ -21,6 +21,8 @@ import {
 import { NAVBAR_HEIGHT } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { useGetApplicationsQuery } from "@/state/api";
+import { useUser } from "@clerk/nextjs";
 
 interface AppSidebarProps {
   userType: "tenant" | "manager";
@@ -29,6 +31,16 @@ interface AppSidebarProps {
 const AppSidebar = ({ userType }: AppSidebarProps) => {
   const pathname = usePathname();
   const { toggleSidebar, open } = useSidebar();
+  const { user } = useUser();
+  const userId = user?.id;
+
+  // Get pending applications count for managers
+  const { data: applications } = useGetApplicationsQuery(
+    { userId, userType: "manager" },
+    { skip: !userId || userType !== "manager" }
+  );
+
+  const pendingCount = applications?.filter((app: any) => app.status === "pending").length || 0;
 
   const navLinks =
     userType === "manager"
@@ -38,6 +50,7 @@ const AppSidebar = ({ userType }: AppSidebarProps) => {
             icon: FileText,
             label: "Applications",
             href: "/managers/applications",
+            badge: pendingCount > 0 ? pendingCount : undefined,
           },
           { icon: Settings, label: "Settings", href: "/managers/settings" },
         ]
@@ -113,7 +126,7 @@ const AppSidebar = ({ userType }: AppSidebarProps) => {
                   )}
                 >
                   <Link href={link.href} className="w-full" scroll={false}>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 w-full">
                       <link.icon
                         className={`h-5 w-5 ${
                           isActive ? "text-blue-600" : "text-gray-600"
@@ -126,6 +139,20 @@ const AppSidebar = ({ userType }: AppSidebarProps) => {
                       >
                         {link.label}
                       </span>
+                      
+                      {/* Notification Badge */}
+                      {link.badge && open && (
+                        <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center animate-pulse">
+                          {link.badge > 9 ? "9+" : link.badge}
+                        </span>
+                      )}
+                      
+                      {/* Badge for collapsed sidebar */}
+                      {link.badge && !open && (
+                        <span className="absolute top-1 right-1 bg-red-500 text-white text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                          {link.badge > 9 ? "9" : link.badge}
+                        </span>
+                      )}
                     </div>
                   </Link>
                 </SidebarMenuButton>

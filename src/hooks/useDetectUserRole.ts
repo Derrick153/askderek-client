@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 
 export function useDetectUserRole() {
@@ -13,6 +13,11 @@ export function useDetectUserRole() {
       process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api";
 
     async function detectRole() {
+      if (!user?.id) {
+        setLoading(false);
+        return;
+      }
+      
       try {
         const tenantRes = await fetch(`${API}/tenants/${user.id}`);
         if (tenantRes.ok) {

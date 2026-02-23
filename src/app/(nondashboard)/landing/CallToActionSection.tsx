@@ -22,7 +22,7 @@ const CallToActionSection = () => {
           <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 animate-pulse" />
         )}
         <Image
-          src="/Market Circle.jpg"
+          src="/x.jpg"
           alt="Find your home in Tarkwa"
           fill
           className={`object-cover object-center transition-opacity duration-700 ${
@@ -188,8 +188,8 @@ const CallToActionSection = () => {
                   />
                 </motion.button>
 
-                {/* Secondary CTA - Sign Up */}
-                <Link href="/signup" scroll={false}>
+                {/* Secondary CTA - Sign Up - NOW PROPERLY LINKED */}
+                <Link href="/sign-up" scroll={false}>
                   <motion.button
                     whileHover={!prefersReducedMotion ? { scale: 1.02 } : undefined}
                     whileTap={{ scale: 0.98 }}

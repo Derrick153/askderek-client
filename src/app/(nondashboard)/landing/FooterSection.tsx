@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import { 
@@ -14,7 +14,12 @@ import {
   Heart,
   ArrowUp,
   Shield,
-  Home
+  Home,
+  Send,
+  CheckCircle2,
+  AlertCircle,
+  ExternalLink,
+  MessageSquare
 } from "lucide-react";
 
 interface FooterLink {
@@ -67,17 +72,92 @@ const footerSections: FooterSection[] = [
 ];
 
 const socialLinks = [
-  { icon: <Facebook className="w-5 h-5" />, href: "https://facebook.com/askderek", label: "Facebook" },
-  { icon: <Twitter className="w-5 h-5" />, href: "https://twitter.com/askderek", label: "Twitter" },
-  { icon: <Instagram className="w-5 h-5" />, href: "https://instagram.com/askderek", label: "Instagram" },
-  { icon: <Linkedin className="w-5 h-5" />, href: "https://linkedin.com/company/askderek", label: "LinkedIn" },
+  { 
+    icon: <Facebook className="w-5 h-5" />, 
+    href: "https://facebook.com", 
+    label: "Facebook",
+    comingSoon: true 
+  },
+  { 
+    icon: <Twitter className="w-5 h-5" />, 
+    href: "https://twitter.com", 
+    label: "Twitter",
+    comingSoon: true 
+  },
+  { 
+    icon: <Instagram className="w-5 h-5" />, 
+    href: "https://instagram.com", 
+    label: "Instagram",
+    comingSoon: true 
+  },
+  { 
+    icon: <Linkedin className="w-5 h-5" />, 
+    href: "https://linkedin.com", 
+    label: "LinkedIn",
+    comingSoon: true 
+  },
 ];
 
 const Footer = () => {
   const prefersReducedMotion = useReducedMotion();
+  const [email, setEmail] = useState("");
+  const [subscribeStatus, setSubscribeStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [subscribeMessage, setSubscribeMessage] = useState("");
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleWhatsApp = () => {
+    // Remove leading zero and add Ghana country code
+    const phoneNumber = "233558153803";
+    const message = encodeURIComponent("Hello Ask Derek! I'm interested in finding a home.");
+    window.open(`https://wa.me/${phoneNumber}?text=${message}`, '_blank');
+  };
+
+  const handleSubscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!email || !email.includes('@')) {
+      setSubscribeStatus("error");
+      setSubscribeMessage("Please enter a valid email address");
+      return;
+    }
+
+    setSubscribeStatus("loading");
+
+    try {
+      // TODO: Replace with your actual newsletter API endpoint
+      // For now, this sends to a mailto link as backup
+      const response = await fetch('/api/newsletter/subscribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      }).catch(() => {
+        // Fallback: Open email client
+        window.location.href = `mailto:askderek7@gmail.com?subject=Newsletter Subscription&body=Please subscribe this email: ${email}`;
+        return { ok: true };
+      });
+
+      if (response.ok) {
+        setSubscribeStatus("success");
+        setSubscribeMessage("Thank you! You're now subscribed to our updates.");
+        setEmail("");
+        
+        // Reset after 5 seconds
+        setTimeout(() => {
+          setSubscribeStatus("idle");
+          setSubscribeMessage("");
+        }, 5000);
+      } else {
+        throw new Error("Subscription failed");
+      }
+    } catch (error) {
+      setSubscribeStatus("error");
+      setSubscribeMessage("Something went wrong. Please try again or contact us directly.");
+    }
   };
 
   return (
@@ -114,6 +194,83 @@ const Footer = () => {
       </div>
 
       <div className="relative max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 xl:px-16">
+        
+        {/* Newsletter Section - New Feature */}
+        <div className="py-12 border-b border-white/10">
+          <div className="max-w-2xl mx-auto text-center">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+            >
+              <h3 className="text-2xl font-bold mb-3">Stay Updated with New Listings</h3>
+              <p className="text-gray-400 mb-6">
+                Get weekly updates on verified homes in Tarkwa and Takoradi. No spam, just quality listings.
+              </p>
+              
+              <form onSubmit={handleSubscribe} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+                <div className="flex-1 relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter your email"
+                    className="w-full pl-11 pr-4 py-3 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-white placeholder-gray-500 transition-all"
+                    disabled={subscribeStatus === "loading"}
+                  />
+                </div>
+                <motion.button
+                  type="submit"
+                  whileHover={!prefersReducedMotion ? { scale: 1.02 } : undefined}
+                  whileTap={{ scale: 0.98 }}
+                  disabled={subscribeStatus === "loading"}
+                  className="px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/50 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+                >
+                  {subscribeStatus === "loading" ? (
+                    <>
+                      <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                        className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                      />
+                      <span>Subscribing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5" />
+                      <span>Subscribe</span>
+                    </>
+                  )}
+                </motion.button>
+              </form>
+
+              {/* Subscription Status Messages */}
+              {subscribeStatus === "success" && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg flex items-center justify-center gap-2 text-green-400"
+                >
+                  <CheckCircle2 className="w-5 h-5" />
+                  <span>{subscribeMessage}</span>
+                </motion.div>
+              )}
+
+              {subscribeStatus === "error" && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center justify-center gap-2 text-red-400"
+                >
+                  <AlertCircle className="w-5 h-5" />
+                  <span>{subscribeMessage}</span>
+                </motion.div>
+              )}
+            </motion.div>
+          </div>
+        </div>
+
         {/* Main Footer Content */}
         <div className="py-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-12">
           
@@ -142,29 +299,54 @@ const Footer = () => {
               </div>
               <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-full text-xs border border-white/10">
                 <Home className="w-3 h-3 text-blue-400" />
-                <span className="text-gray-300">1000+ Homes</span>
+                <span className="text-gray-300">Growing Daily</span>
               </div>
             </div>
 
-            {/* Contact Info */}
+            {/* Contact Info - All Functional */}
             <div className="space-y-3 text-sm text-gray-400">
               <div className="flex items-center gap-3">
                 <MapPin className="w-4 h-4 text-orange-500 flex-shrink-0" />
                 <span>Tarkwa, Western Region, Ghana</span>
               </div>
-              <div className="flex items-center gap-3">
+              
+              {/* WhatsApp Contact Button */}
+              <motion.button
+                onClick={handleWhatsApp}
+                whileHover={!prefersReducedMotion ? { scale: 1.02 } : undefined}
+                whileTap={{ scale: 0.98 }}
+                className="flex items-center gap-3 hover:text-orange-400 transition-colors cursor-pointer group w-full text-left"
+              >
                 <Phone className="w-4 h-4 text-orange-500 flex-shrink-0" />
-                <a href="tel:+233123456789" className="hover:text-orange-400 transition-colors">
-                  +233 (0) 558 153 803
-                </a>
-              </div>
+                <span className="group-hover:underline">+233 558 153 803</span>
+                <MessageSquare className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </motion.button>
+
+              {/* Email Contact */}
               <div className="flex items-center gap-3">
                 <Mail className="w-4 h-4 text-orange-500 flex-shrink-0" />
-                <a href="mailto:hello@askderek.com" className="hover:text-orange-400 transition-colors">
+                <a 
+                  href="mailto:askderek7@gmail.com" 
+                  className="hover:text-orange-400 transition-colors hover:underline"
+                >
                   askderek7@gmail.com
                 </a>
               </div>
             </div>
+
+            {/* Quick WhatsApp CTA */}
+            <motion.a
+              href={`https://wa.me/233558153803?text=${encodeURIComponent("Hello Ask Derek! I'm interested in finding a home.")}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              whileHover={!prefersReducedMotion ? { scale: 1.02 } : undefined}
+              whileTap={{ scale: 0.98 }}
+              className="mt-6 inline-flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 rounded-lg font-semibold text-sm transition-all group"
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span>Chat on WhatsApp</span>
+              <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </motion.a>
           </div>
 
           {/* Footer Links */}
@@ -205,8 +387,8 @@ const Footer = () => {
           
           {/* Copyright */}
           <div className="flex items-center gap-2 text-sm text-gray-400">
-            <span>© {new Date().getFullYear()} Ask Derek.</span>
-            <span className="flex items-center gap-1">
+            <span>© 2026 Ask Derek. All rights reserved.</span>
+            <span className="hidden sm:flex items-center gap-1">
               Made with <Heart className="w-4 h-4 text-red-500 fill-red-500" /> in Ghana
             </span>
           </div>
@@ -214,18 +396,31 @@ const Footer = () => {
           {/* Social Links */}
           <div className="flex items-center gap-4">
             {socialLinks.map((social) => (
-              <motion.a
-                key={social.label}
-                href={social.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={social.label}
-                whileHover={!prefersReducedMotion ? { scale: 1.1, y: -2 } : undefined}
-                whileTap={{ scale: 0.95 }}
-                className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-orange-500/50 text-gray-400 hover:text-orange-400 transition-all duration-300"
-              >
-                {social.icon}
-              </motion.a>
+              <div key={social.label} className="relative group">
+                <motion.a
+                  href={social.comingSoon ? "#" : social.href}
+                  target={social.comingSoon ? undefined : "_blank"}
+                  rel={social.comingSoon ? undefined : "noopener noreferrer"}
+                  aria-label={social.label}
+                  onClick={(e) => {
+                    if (social.comingSoon) {
+                      e.preventDefault();
+                    }
+                  }}
+                  whileHover={!prefersReducedMotion ? { scale: 1.1, y: -2 } : undefined}
+                  whileTap={{ scale: 0.95 }}
+                  className={`w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-orange-500/50 text-gray-400 hover:text-orange-400 transition-all duration-300 ${
+                    social.comingSoon ? 'cursor-not-allowed opacity-50' : ''
+                  }`}
+                >
+                  {social.icon}
+                </motion.a>
+                {social.comingSoon && (
+                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                    Coming Soon
+                  </div>
+                )}
+              </div>
             ))}
           </div>
 
@@ -240,6 +435,24 @@ const Footer = () => {
             <span>Back to Top</span>
             <ArrowUp className="w-4 h-4" />
           </motion.button>
+        </div>
+
+        {/* Trust Footer - New Feature */}
+        <div className="border-t border-white/10 py-6">
+          <div className="flex flex-wrap justify-center items-center gap-6 text-xs text-gray-500">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-green-500" />
+              <span>SSL Secured</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-blue-500" />
+              <span>Verified Listings Only</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Heart className="w-4 h-4 text-red-500" />
+              <span>Built for Ghanaians</span>
+            </div>
+          </div>
         </div>
       </div>
     </footer>

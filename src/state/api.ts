@@ -10,14 +10,14 @@ import {
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { FiltersState } from ".";
 
-// Define User type for Clerk
-export interface User {
-  userId: string; // Clerk user ID
-  email?: string;
-  name?: string;
+// ─── CLERK USER TYPE ──────────────────────────────────────────────────────────
+// This replaces all AWS cognitoInfo / userInfo references
+export interface ClerkUser {
+  userId: string;       // Clerk user ID (e.g. "user_2abc123")
+  email: string;
+  name: string;
   phoneNumber?: string;
-  userType?: "tenant" | "manager";
-  userRole?: string;
+  userType: "tenant" | "manager";
 }
 
 export const api = createApi({
@@ -25,8 +25,9 @@ export const api = createApi({
 
   baseQuery: fetchBaseQuery({
     baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
-    prepareHeaders: (headers) => {
-      // Add auth headers here later if needed
+    prepareHeaders: async (headers) => {
+      // Clerk token is attached automatically via Clerk's middleware
+      // If you need manual token: const token = await window.Clerk?.session?.getToken()
       return headers;
     },
   }),
@@ -42,23 +43,41 @@ export const api = createApi({
   ],
 
   endpoints: (build) => ({
-    /* ===================== AUTH ===================== */
 
-    getAuthUser: build.query<User | null, void>({
+    // ─── AUTH ──────────────────────────────────────────────────────────────
+    // ✅ FIXED: Real Clerk auth — replaces AWS cognitoInfo placeholder
+    // Call this anywhere you need the current user's ID or type
+    getAuthUser: build.query<ClerkUser | null, void>({
       queryFn: async () => {
         try {
-          // Replace with real Clerk auth logic later
-          return { data: null };
-        } catch (error: any) {
-          return {
-            error: error?.message || "Could not fetch user data",
+          // Get current Clerk user from window.Clerk (available after Clerk loads)
+          const clerkUser = window.Clerk?.user;
+
+          if (!clerkUser) {
+            return { data: null };
+          }
+
+          // userType is stored in Clerk's publicMetadata when user registers
+          const userType =
+            (clerkUser.publicMetadata?.userType as "tenant" | "manager") ||
+            "tenant";
+
+          const user: ClerkUser = {
+            userId: clerkUser.id,
+            email: clerkUser.primaryEmailAddress?.emailAddress || "",
+            name: `${clerkUser.firstName || ""} ${clerkUser.lastName || ""}`.trim(),
+            phoneNumber: clerkUser.primaryPhoneNumber?.phoneNumber || "",
+            userType,
           };
+
+          return { data: user };
+        } catch (error: any) {
+          return { error: error?.message || "Could not fetch user data" };
         }
       },
     }),
 
-    /* ===================== PROPERTIES ===================== */
-
+    // ─── PROPERTIES ───────────────────────────────────────────────────────
     getProperties: build.query<
       Property[],
       Partial<FiltersState> & { favoriteIds?: number[] }
@@ -79,16 +98,12 @@ export const api = createApi({
           latitude: filters.coordinates?.[1],
           longitude: filters.coordinates?.[0],
         });
-
         return { url: "properties", params };
       },
       providesTags: (result) =>
         result
           ? [
-              ...result.map(({ id }) => ({
-                type: "Properties" as const,
-                id,
-              })),
+              ...result.map(({ id }) => ({ type: "Properties" as const, id })),
               { type: "Properties", id: "LIST" },
             ]
           : [{ type: "Properties", id: "LIST" }],
@@ -101,9 +116,7 @@ export const api = createApi({
 
     getProperty: build.query<Property, number>({
       query: (id) => `properties/${id}`,
-      providesTags: (_, __, id) => [
-        { type: "PropertyDetails", id },
-      ],
+      providesTags: (_, __, id) => [{ type: "PropertyDetails", id }],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           error: "Failed to load property details.",
@@ -117,10 +130,7 @@ export const api = createApi({
         method: "POST",
         body: newProperty,
       }),
-      invalidatesTags: (result) => [
-        { type: "Properties", id: "LIST" },
-        { type: "Managers", id: result?.manager?.id },
-      ],
+      invalidatesTags: [{ type: "Properties", id: "LIST" }],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Property created successfully!",
@@ -129,13 +139,10 @@ export const api = createApi({
       },
     }),
 
-    /* ===================== TENANTS ===================== */
-
+    // ─── TENANTS ──────────────────────────────────────────────────────────
     getTenant: build.query<Tenant, string>({
       query: (userId) => `tenants/${userId}`,
-      providesTags: (result) => [
-        { type: "Tenants", id: result?.id },
-      ],
+      providesTags: (result) => [{ type: "Tenants", id: result?.id }],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           error: "Failed to load tenant profile.",
@@ -144,15 +151,11 @@ export const api = createApi({
     }),
 
     getCurrentResidences: build.query<Property[], string>({
-      query: (userId) =>
-        `tenants/${userId}/current-residences`,
+      query: (userId) => `tenants/${userId}/current-residences`,
       providesTags: (result) =>
         result
           ? [
-              ...result.map(({ id }) => ({
-                type: "Properties" as const,
-                id,
-              })),
+              ...result.map(({ id }) => ({ type: "Properties" as const, id })),
               { type: "Properties", id: "LIST" },
             ]
           : [{ type: "Properties", id: "LIST" }],
@@ -172,9 +175,7 @@ export const api = createApi({
         method: "PUT",
         body: updatedTenant,
       }),
-      invalidatesTags: (result) => [
-        { type: "Tenants", id: result?.id },
-      ],
+      invalidatesTags: (result) => [{ type: "Tenants", id: result?.id }],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Settings updated successfully!",
@@ -223,24 +224,19 @@ export const api = createApi({
       },
     }),
 
-    /* ===================== MANAGERS ===================== */
-
+    // ─── MANAGERS ─────────────────────────────────────────────────────────
     getManagerProperties: build.query<Property[], string>({
-      query: (userId) =>
-        `managers/${userId}/properties`,
+      query: (userId) => `managers/${userId}/properties`,
       providesTags: (result) =>
         result
           ? [
-              ...result.map(({ id }) => ({
-                type: "Properties" as const,
-                id,
-              })),
+              ...result.map(({ id }) => ({ type: "Properties" as const, id })),
               { type: "Properties", id: "LIST" },
             ]
           : [{ type: "Properties", id: "LIST" }],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
-          error: "Failed to load manager profile.",
+          error: "Failed to load manager properties.",
         });
       },
     }),
@@ -254,9 +250,7 @@ export const api = createApi({
         method: "PUT",
         body: updatedManager,
       }),
-      invalidatesTags: (result) => [
-        { type: "Managers", id: result?.id },
-      ],
+      invalidatesTags: (result) => [{ type: "Managers", id: result?.id }],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Settings updated successfully!",
@@ -265,8 +259,7 @@ export const api = createApi({
       },
     }),
 
-    /* ===================== LEASES & PAYMENTS ===================== */
-
+    // ─── LEASES & PAYMENTS ────────────────────────────────────────────────
     getLeases: build.query<Lease[], void>({
       query: () => "leases",
       providesTags: ["Leases"],
@@ -278,8 +271,7 @@ export const api = createApi({
     }),
 
     getPropertyLeases: build.query<Lease[], number>({
-      query: (propertyId) =>
-        `properties/${propertyId}/leases`,
+      query: (propertyId) => `properties/${propertyId}/leases`,
       providesTags: ["Leases"],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
@@ -289,18 +281,44 @@ export const api = createApi({
     }),
 
     getPayments: build.query<Payment[], number>({
-      query: (leaseId) =>
-        `leases/${leaseId}/payments`,
+      query: (leaseId) => `leases/${leaseId}/payments`,
       providesTags: ["Payments"],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
-          error: "Failed to fetch payment info.",
+          error: "Failed to fetch payments.",
         });
       },
     }),
 
-    /* ===================== APPLICATIONS ===================== */
+    initializePayment: build.mutation<
+      { data: { authorization_url: string; access_code: string; reference: string } },
+      { leaseId: number; amount: number; email: string }
+    >({
+      query: (data) => ({
+        url: "payments/initialize",
+        method: "POST",
+        body: data,
+      }),
+      invalidatesTags: ["Payments"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, {
+          error: "Failed to initialize payment.",
+        });
+      },
+    }),
 
+    verifyPayment: build.query<any, string>({
+      query: (reference) => `payments/verify/${reference}`,
+      providesTags: ["Payments"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, {
+          success: "Payment verified successfully!",
+          error: "Failed to verify payment.",
+        });
+      },
+    }),
+
+    // ─── APPLICATIONS ─────────────────────────────────────────────────────
     getApplications: build.query<
       Application[],
       { userId?: string; userType?: string }
@@ -309,7 +327,6 @@ export const api = createApi({
         const queryParams = new URLSearchParams();
         if (params.userId) queryParams.append("userId", params.userId);
         if (params.userType) queryParams.append("userType", params.userType);
-
         return `applications?${queryParams.toString()}`;
       },
       providesTags: ["Applications"],
@@ -329,19 +346,16 @@ export const api = createApi({
         method: "PUT",
         body: { status },
       }),
-      invalidatesTags: ["Applications", "Leases"],
+      invalidatesTags: ["Applications", "Leases", "Properties"],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
-          success: "Application status updated successfully!",
-          error: "Failed to update application status.",
+          success: "Application updated successfully!",
+          error: "Failed to update application.",
         });
       },
     }),
 
-    createApplication: build.mutation<
-      Application,
-      Partial<Application>
-    >({
+    createApplication: build.mutation<Application, Partial<Application>>({
       query: (body) => ({
         url: "applications",
         method: "POST",
@@ -350,8 +364,8 @@ export const api = createApi({
       invalidatesTags: ["Applications"],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
-          success: "Application created successfully!",
-          error: "Failed to create application.",
+          success: "Application submitted successfully!",
+          error: "Failed to submit application.",
         });
       },
     }),
@@ -373,6 +387,8 @@ export const {
   useGetLeasesQuery,
   useGetPropertyLeasesQuery,
   useGetPaymentsQuery,
+  useInitializePaymentMutation,
+  useVerifyPaymentQuery,
   useGetApplicationsQuery,
   useUpdateApplicationStatusMutation,
   useCreateApplicationMutation,

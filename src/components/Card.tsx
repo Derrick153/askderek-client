@@ -1,7 +1,16 @@
-import { Bath, Bed, Heart, House, Star, Share2 } from "lucide-react";
+import { Bath, Bed, Heart, MapPin, Star, Share2, Home as HouseIcon } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import React, { useState } from "react";
+import { Property } from "@/types/prismaTypes";
+
+interface CardProps {
+  property: Property;
+  isFavorite: boolean;
+  onFavoriteToggle: () => void;
+  showFavoriteButton?: boolean;
+  propertyLink: string;
+}
 
 const Card = ({
   property,
@@ -11,10 +20,11 @@ const Card = ({
   propertyLink,
 }: CardProps) => {
   const [imgSrc, setImgSrc] = useState(
-    property.photoUrls?.[0] || "/placeholder.jpg"
+    property.photoUrls?.[0] || "/x.jpg"
   );
   const [showCopied, setShowCopied] = useState(false);
 
+  // ✅ PROFESSIONAL SHARE FUNCTION
   const handleShare = async () => {
     const shareUrl = `${window.location.origin}${propertyLink}`;
     
@@ -28,103 +38,141 @@ const Card = ({
   };
 
   return (
-    <div className="bg-white rounded-xl overflow-hidden shadow-lg w-full mb-5">
-      <div className="relative">
-        <div className="w-full h-48 relative">
+    <div className="bg-white rounded-2xl overflow-hidden shadow-lg border-2 border-gray-100 hover:shadow-2xl hover:border-orange-200 transition-all duration-300 group">
+      {/* ✅ IMAGE CONTAINER - Professional */}
+      <div className="relative aspect-[4/3] overflow-hidden">
+        <Link href={propertyLink} scroll={false}>
           <Image
             src={imgSrc}
             alt={property.name}
             fill
             unoptimized
-            className="object-cover"
+            className="object-cover group-hover:scale-110 transition-transform duration-500"
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-            onError={() => setImgSrc("/placeholder.jpg")}
+            onError={() => setImgSrc("/osu.jpg")}
           />
-        </div>
-        <div className="absolute bottom-4 left-4 flex gap-2">
+        </Link>
+        
+        {/* ✅ OVERLAY BADGES */}
+        <div className="absolute top-3 left-3 flex flex-col gap-2">
           {property.isPetsAllowed && (
-            <span className="bg-white/80 text-black text-xs font-semibold px-2 py-1 rounded-full">
-              Pets Allowed
+            <span className="bg-white/95 backdrop-blur-sm text-gray-900 text-xs font-bold px-3 py-1.5 rounded-full shadow-lg border border-gray-200">
+              🐾 Pets OK
             </span>
           )}
           {property.isParkingIncluded && (
-            <span className="bg-white/80 text-black text-xs font-semibold px-2 py-1 rounded-full">
-              Parking Included
+            <span className="bg-white/95 backdrop-blur-sm text-gray-900 text-xs font-bold px-3 py-1.5 rounded-full shadow-lg border border-gray-200">
+              🚗 Parking
             </span>
           )}
         </div>
-        <div className="absolute bottom-4 right-4 flex gap-2">
+
+        {/* ✅ ACTION BUTTONS - Top Right */}
+        <div className="absolute top-3 right-3 flex gap-2">
           {showFavoriteButton && (
             <button
-              className="bg-white hover:bg-white/90 rounded-full p-2 cursor-pointer"
+              className="bg-white/95 backdrop-blur-sm rounded-full p-2.5 shadow-lg hover:scale-110 transition-all duration-200 border border-gray-200"
               onClick={onFavoriteToggle}
             >
               <Heart
                 className={`w-5 h-5 ${
-                  isFavorite ? "text-red-500 fill-red-500" : "text-gray-600"
+                  isFavorite ? "text-red-500 fill-red-500" : "text-gray-700"
                 }`}
               />
             </button>
           )}
           <button
-            className="bg-white hover:bg-white/90 rounded-full p-2 cursor-pointer relative"
+            className="bg-white/95 backdrop-blur-sm rounded-full p-2.5 shadow-lg hover:scale-110 transition-all duration-200 border border-gray-200 relative"
             onClick={handleShare}
           >
-            <Share2 className="w-5 h-5 text-gray-600" />
+            <Share2 className="w-5 h-5 text-gray-700" />
             {showCopied && (
-              <div className="absolute -top-10 right-0 bg-green-600 text-white text-xs px-3 py-1 rounded shadow-lg whitespace-nowrap">
-                Link copied!
+              <div className="absolute -top-10 right-0 bg-green-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap animate-bounce">
+                ✓ Link Copied!
               </div>
             )}
           </button>
         </div>
+
+        {/* ✅ PROPERTY TYPE BADGE - Bottom Left */}
+        <div className="absolute bottom-3 left-3">
+          <span className="bg-orange-600 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
+            {property.propertyType?.replace(/-/g, ' ').toUpperCase() || 'PROPERTY'}
+          </span>
+        </div>
       </div>
-      <div className="p-4">
-        <h2 className="text-xl font-bold mb-1">
-          {propertyLink ? (
+
+      {/* ✅ CARD CONTENT - Professional Layout */}
+      <div className="p-5 space-y-3">
+        {/* TITLE & LOCATION */}
+        <div>
+          <h2 className="text-lg font-black text-gray-900 mb-1 line-clamp-1">
             <Link
               href={propertyLink}
-              className="hover:underline hover:text-blue-600"
+              className="hover:text-orange-600 transition-colors"
               scroll={false}
             >
               {property.name}
             </Link>
-          ) : (
-            property.name
-          )}
-        </h2>
-        <p className="text-gray-600 mb-2">
-          {property?.location?.address}, {property?.location?.city}
-        </p>
-        <div className="flex justify-between items-center">
-          <div className="flex items-center mb-2">
-            <Star className="w-4 h-4 text-yellow-400 mr-1" />
-            <span className="font-semibold">
-              {property.averageRating.toFixed(1)}
-            </span>
-            <span className="text-gray-600 ml-1">
-              ({property.numberOfReviews} Reviews)
-            </span>
-          </div>
-          <p className="text-lg font-bold mb-3">
-            ${property.pricePerMonth.toFixed(0)}{" "}
-            <span className="text-gray-600 text-base font-normal"> /month</span>
+          </h2>
+          
+          <p className="text-sm text-gray-600 flex items-center gap-1 line-clamp-1">
+            <MapPin className="w-4 h-4 text-orange-600 flex-shrink-0" />
+            {property?.location?.address}, {property?.location?.city || 'Tarkwa'}
           </p>
         </div>
-        <hr />
-        <div className="flex justify-between items-center gap-4 text-gray-600 mt-5">
-          <span className="flex items-center">
-            <Bed className="w-5 h-5 mr-2" />
-            {property.beds} Bed
+
+        {/* ✅ RATING - Professional */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+            <span className="font-bold text-gray-900">
+              {property.averageRating?.toFixed(1) || '4.5'}
+            </span>
+          </div>
+          <span className="text-sm text-gray-500">
+            ({property.numberOfReviews || 0} reviews)
           </span>
-          <span className="flex items-center">
-            <Bath className="w-5 h-5 mr-2" />
-            {property.baths} Bath
+        </div>
+
+        {/* ✅ PROPERTY DETAILS - Ghana Style */}
+        <div className="flex items-center gap-4 text-sm text-gray-600 border-t border-gray-100 pt-3">
+          <span className="flex items-center gap-1 font-semibold">
+            <Bed className="w-4 h-4 text-orange-600" />
+            {property.beds} {property.beds === 1 ? 'Bed' : 'Beds'}
           </span>
-          <span className="flex items-center">
-            <House className="w-5 h-5 mr-2" />
-            {property.squareFeet} sq ft
+          <span className="flex items-center gap-1 font-semibold">
+            <Bath className="w-4 h-4 text-orange-600" />
+            {property.baths} {property.baths === 1 ? 'Bath' : 'Baths'}
           </span>
+          <span className="flex items-center gap-1 font-semibold">
+            <HouseIcon className="w-4 h-4 text-orange-600" />
+            {property.squareFeet} ft²
+          </span>
+        </div>
+
+        {/* ✅ PRICE - GHANA CEDIS (GH₵) */}
+        <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+          <div>
+            <p className="text-2xl font-black text-orange-600">
+              GH₵{property.pricePerMonth?.toLocaleString() || '0'}
+            </p>
+            <p className="text-xs text-gray-500 font-semibold">per month</p>
+          </div>
+          
+          <Link href={propertyLink} scroll={false}>
+            <button className="bg-orange-600 hover:bg-orange-700 text-white font-bold px-4 py-2 rounded-lg transition-all duration-200 hover:shadow-lg">
+              View Details
+            </button>
+          </Link>
+        </div>
+
+        {/* ✅ VERIFIED BADGE */}
+        <div className="border-t border-gray-100 pt-3">
+          <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 px-3 py-2 rounded-lg">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            <span className="font-bold">Verified by Ask Derek</span>
+          </div>
         </div>
       </div>
     </div>

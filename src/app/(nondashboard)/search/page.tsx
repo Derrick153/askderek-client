@@ -24,37 +24,58 @@ const SearchPage = () => {
           acc[key] = value.split(",").map((v) => (v === "" ? null : Number(v)));
         } else if (key === "coordinates") {
           acc[key] = value.split(",").map(Number);
+        } else if (key === "amenities") {
+          acc[key] = value.split(",");
         } else {
-          acc[key] = value === "any" ? null : value;
+          acc[key] = value === "any" ? "any" : value;
         }
-
         return acc;
       },
       {}
     );
-
     const cleanedFilters = cleanParams(initialFilters);
     dispatch(setFilters(cleanedFilters));
-  }, []);
+  }, [searchParams, dispatch]);
 
   return (
-    <div
-      className="w-full mx-auto px-5 flex flex-col"
-      style={{
-        height: `calc(100vh - px)`,
-      }}
-    >
-      <FiltersBar />
-      <div className="flex justify-between flex-1 overflow-hidden gap-3 mb-5">
-        <div
-          className={`h-full overflow-auto transition-all duration-300 ease-in-out `}
-        >
-          <FiltersFull />
-        </div>
-        <div className="basis-8/12 overflow-y-auto">
-          <Listings />
+    <div className="min-h-screen bg-gray-50">
+      {/* Sticky Filters Bar */}
+      <div 
+        className="sticky bg-white border-b shadow-sm z-30"
+        style={{ top: `${NAVBAR_HEIGHT}px` }}
+      >
+        <div className="max-w-[1600px] mx-auto">
+          <FiltersBar />
         </div>
       </div>
+
+      {/* Main Content */}
+      <div className="max-w-[1600px] mx-auto">
+        <div className="flex gap-6 p-6">
+          {/* Filters Sidebar - Desktop Only */}
+          {isFiltersFullOpen && (
+            <aside className="hidden lg:block w-80 flex-shrink-0">
+              <div className="sticky" style={{ top: `${NAVBAR_HEIGHT + 90}px` }}>
+                <FiltersFull />
+              </div>
+            </aside>
+          )}
+
+          {/* Listings */}
+          <main className="flex-1 min-w-0">
+            <Listings />
+          </main>
+        </div>
+      </div>
+
+      {/* Mobile Filter Modal */}
+      {isFiltersFullOpen && (
+        <div className="lg:hidden fixed inset-0 bg-black/50 z-40" style={{ top: `${NAVBAR_HEIGHT}px` }}>
+          <div className="bg-white h-full overflow-auto">
+            <FiltersFull />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
