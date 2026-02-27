@@ -1,0 +1,52 @@
+[
+  {
+    "applicationDate": "2026-01-10T10:30:00Z",
+    "status": "Pending",
+    "propertyId": 7,
+    "tenantClerkId": "user_frankWilson_06",
+    "name": "Frank Wilson",
+    "email": "frank.wilson@example.com",
+    "phoneNumber": "+233555222333",
+    "message": "I am interested in viewing this executive property for my family."
+  },
+  {
+    "applicationDate": "2026-01-12T14:20:00Z",
+    "status": "Approved",
+    "propertyId": 10,
+    "tenantClerkId": "user_graceMiller_07",
+    "name": "Grace Miller",
+    "email": "grace.miller@example.com",
+    "phoneNumber": "+233555444555",
+    "message": "Looking for a budget-friendly option near Low Cost area."
+  },
+  {
+    "applicationDate": "2026-01-15T09:00:00Z",
+    "status": "Pending",
+    "propertyId": 15,
+    "tenantClerkId": "user_henryWilson_08",
+    "name": "Henry Wilson",
+    "email": "henry.wilson@example.com",
+    "phoneNumber": "+233555444556",
+    "message": "Need affordable accommodation near work in Bonsa."
+  },
+  {
+    "applicationDate": "2026-01-18T16:45:00Z",
+    "status": "Denied",
+    "propertyId": 21,
+    "tenantClerkId": "user_isabellaGarcia_09",
+    "name": "Isabella Garcia",
+    "email": "isabella.garcia@example.com",
+    "phoneNumber": "+233555666777",
+    "message": "Interested in the executive property in Bonsawire."
+  },
+  {
+    "applicationDate": "2026-01-20T11:30:00Z",
+    "status": "Approved",
+    "propertyId": 25,
+    "tenantClerkId": "user_jackThompson_10",
+    "name": "Jack Thompson",
+    "email": "jack.thompson@example.com",
+    "phoneNumber": "+233555888999",
+    "message": "Looking for simple room in Efuanta area for work."
+  }
+]
