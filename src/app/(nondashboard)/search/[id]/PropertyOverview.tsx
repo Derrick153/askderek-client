@@ -254,4 +254,186 @@ const PropertyOverview = ({ propertyId }: PropertyOverviewProps) => {
 
         {/* BREADCRUMB */}
         <div className="po-right d0 flex items-center gap-1.5 flex-wrap">
-          <span className="breadcrumb-item" style={{ background: '#F0FDF4', border: '1px solid #86EFAC', color: '#1
+          <span className="breadcrumb-item" style={{ background: '#F0FDF4', border: '1px solid #86EFAC', color: '#166534' }}>
+            🇬🇭 Ghana
+          </span>
+          <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: '#D1D5DB' }} />
+          <span className="breadcrumb-item" style={{ background: '#FFFBF5', border: '1px solid #FDE8C8', color: '#92400E' }}>
+            {property.location?.state || 'Western Region'}
+          </span>
+          <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: '#D1D5DB' }} />
+          <span className="breadcrumb-item" style={{ background: '#E05A00', color: 'white' }}>
+            {property.location?.city || 'Tarkwa'}
+          </span>
+        </div>
+
+        {/* TITLE */}
+        <div className="po-enter d1 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="prop-title flex-1">{property.name}</h1>
+            {isAffordable && (
+              <div className="hot-deal flex-shrink-0 mt-1">
+                <Flame className="w-3 h-3" />
+                Hot Deal
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center flex-wrap gap-2">
+            <div className="rating-chip">
+              <Star className="w-3.5 h-3.5 fill-current" style={{ color: '#FBBF24' }} />
+              <span>{(property.averageRating ?? 0).toFixed(1)}</span>
+              <span style={{ color: '#D97706', fontWeight: 400 }}>({property.numberOfReviews})</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#E05A00' }} />
+              <span style={{ fontSize: '0.8rem', color: '#6B7280' }}>
+                {property.location?.city || 'Tarkwa'}, {property.location?.country || 'Ghana'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="po-divider" />
+
+        {/* PRICE HERO */}
+        <div className="po-pop d2 price-hero">
+          <div className="relative z-10">
+            <div className="text-xs font-semibold tracking-widest uppercase mb-1" style={{ color: 'rgba(251,191,36,0.6)' }}>
+              Monthly Rent
+            </div>
+            <div className="price-amount">GH₵ {property.pricePerMonth.toLocaleString()}</div>
+            <div className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.4)' }}>
+              per month · bills may be separate
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mt-5">
+              <div className="stat-pill">
+                <div className="stat-pill-icon" style={{ background: 'rgba(224,90,0,0.2)' }}>
+                  <Bed className="w-4 h-4" style={{ color: '#FBBF24' }} />
+                </div>
+                <div>
+                  <div className="stat-pill-val">{property.beds}</div>
+                  <div className="stat-pill-label">Beds</div>
+                </div>
+              </div>
+              <div className="stat-pill">
+                <div className="stat-pill-icon" style={{ background: 'rgba(99,102,241,0.2)' }}>
+                  <Bath className="w-4 h-4" style={{ color: '#A5B4FC' }} />
+                </div>
+                <div>
+                  <div className="stat-pill-val">{property.baths}</div>
+                  <div className="stat-pill-label">Baths</div>
+                </div>
+              </div>
+              <div className="stat-pill">
+                <div className="stat-pill-icon" style={{ background: 'rgba(16,185,129,0.2)' }}>
+                  <Maximize2 className="w-4 h-4" style={{ color: '#6EE7B7' }} />
+                </div>
+                <div>
+                  <div className="stat-pill-val" style={{ fontSize: '0.9rem' }}>{property.squareFeet.toLocaleString()}</div>
+                  <div className="stat-pill-label">sq ft</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* DESCRIPTION */}
+        <div className="po-enter d3 space-y-2">
+          <div className="text-xs font-bold tracking-widest uppercase" style={{ color: '#E05A00' }}>About this property</div>
+          <p className="desc-text">{property.description}</p>
+        </div>
+
+        <div className="po-divider" />
+
+        {/* DEREK VERIFIED */}
+        <div className="po-enter d4 verified-card">
+          <div className="verified-tick">
+            <CheckCircle2 className="w-5 h-5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-green-900 text-sm mb-1">
+              Derek Verified Property ✓
+            </div>
+            <p className="text-xs leading-5" style={{ color: '#15803D' }}>
+              Personally inspected by the AskDerek team. Real photos, verified landlord, accurate pricing.
+              <span className="font-semibold"> No agent. No scam. Your trust is everything.</span>
+            </p>
+            <div className="flex items-center gap-1.5 mt-2">
+              <Shield className="w-3 h-3" style={{ color: '#16A34A' }} />
+              <span className="text-xs font-semibold" style={{ color: '#166534' }}>
+                Last verified: {new Date().toLocaleDateString('en-GH')}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* LOCATION CONTEXT */}
+        <div className="po-enter d5 location-card">
+          <div className="relative z-10">
+            <div className="text-xs font-bold tracking-widest uppercase mb-2" style={{ color: '#E05A00' }}>
+              Why this location?
+            </div>
+            <div className="po-display font-bold text-amber-900 text-base mb-3">
+              Prime spot in {property.location?.city || 'Tarkwa'}
+            </div>
+            <div className="space-y-2">
+              {[
+                { icon: '🎓', text: 'Walking distance to UMaT campus' },
+                { icon: '⛏️', text: 'Near Goldfields & mining companies' },
+                { icon: '🛒', text: 'Close to Tarkwa main market' },
+                { icon: '🚌', text: 'Easy trotro & taxi access' },
+                { icon: '🔒', text: 'Safe, established neighbourhood' },
+              ].map((item, i) => (
+                <div key={i} className="flex items-center gap-2.5">
+                  <span className="text-base flex-shrink-0">{item.icon}</span>
+                  <span className="text-xs font-medium" style={{ color: '#78350F' }}>{item.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* QUICK FACTS */}
+        <div className="po-enter d6">
+          <div className="text-xs font-bold tracking-widest uppercase mb-3" style={{ color: '#E05A00' }}>
+            Quick Facts
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: 'Application Fee', value: `GH₵ ${property.applicationFee.toLocaleString()}`, sub: 'one-time, non-refundable' },
+              { label: 'Security Deposit', value: `GH₵ ${property.securityDeposit.toLocaleString()}`, sub: 'refundable at lease end' },
+              {
+                label: 'Pets',
+                value: property.isPetsAllowed ? 'Allowed ✓' : 'Not allowed ✗',
+                sub: 'confirm with landlord',
+                ok: property.isPetsAllowed,
+              },
+              {
+                label: 'Parking',
+                value: property.isParkingIncluded ? 'Included ✓' : 'Not included',
+                sub: 'see details below',
+                ok: property.isParkingIncluded,
+              },
+            ].map((f, i) => (
+              <div key={i} className="fact-tile">
+                <div className="text-xs mb-1" style={{ color: '#9CA3AF' }}>{f.label}</div>
+                <div
+                  className="font-bold text-sm"
+                  style={{ color: f.ok === false ? '#DC2626' : f.ok === true ? '#16A34A' : '#1A0800' }}
+                >
+                  {f.value}
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: '#D1D5DB' }}>{f.sub}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+      </div>
+    </>
+  );
+};
+
+export default PropertyOverview;

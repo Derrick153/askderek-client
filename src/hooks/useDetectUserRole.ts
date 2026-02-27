@@ -7,7 +7,11 @@ export function useDetectUserRole() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isLoaded || !user) return;
+    if (!isLoaded) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
     const API =
       process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api";
