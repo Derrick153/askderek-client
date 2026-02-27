@@ -10,6 +10,7 @@ export interface FiltersState {
   priceRange: [number, number] | [null, null];
   squareFeet: [number, number] | [null, null];
   coordinates: [number, number];
+  area: string;
 
   // ✅ ADDED — needed for manager properties filtering
   managerClerkId?: string;
@@ -32,6 +33,7 @@ export const initialState: InitialStateTypes = {
     priceRange: [null, null],
     squareFeet: [null, null],
     coordinates: [-1.9942, 5.3034], // Tarkwa, Ghana
+    area: "any",
   },
   isFiltersFullOpen: false,
   viewMode: "grid",

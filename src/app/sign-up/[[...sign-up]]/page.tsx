@@ -1,227 +1,369 @@
 'use client'
 
 import { SignUp } from '@clerk/nextjs'
-import { Building2, Shield, Sparkles, CheckCircle2, TrendingUp, Lock, Users, Clock, Zap } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
 export default function SignUpPage() {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [mounted, setMounted] = useState(false)
+  const [activeRole, setActiveRole] = useState<'tenant' | 'landlord'>('tenant')
+
+  useEffect(() => {
+    setMounted(true)
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+
+    const particles: { x: number; y: number; vx: number; vy: number; size: number; color: string; opacity: number; shape: string }[] = []
+    const colors = ['#E05A00', '#F97316', '#FBBF24', '#B45309', '#FCD34D']
+    const shapes = ['circle', 'square', 'diamond']
+
+    for (let i = 0; i < 50; i++) {
+      particles.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        vx: (Math.random() - 0.5) * 0.5,
+        vy: (Math.random() - 0.5) * 0.5,
+        size: Math.random() * 4 + 1,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        opacity: Math.random() * 0.3 + 0.05,
+        shape: shapes[Math.floor(Math.random() * shapes.length)],
+      })
+    }
+
+    let animId: number
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      particles.forEach(p => {
+        p.x += p.vx
+        p.y += p.vy
+        if (p.x < 0 || p.x > canvas.width) p.vx *= -1
+        if (p.y < 0 || p.y > canvas.height) p.vy *= -1
+        ctx.globalAlpha = p.opacity
+        ctx.fillStyle = p.color
+        if (p.shape === 'circle') {
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill()
+        } else if (p.shape === 'square') {
+          ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2)
+        } else {
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.PI / 4)
+          ctx.fillRect(-p.size, -p.size, p.size * 2, p.size * 2); ctx.restore()
+        }
+      })
+      ctx.globalAlpha = 1
+      animId = requestAnimationFrame(animate)
+    }
+    animate()
+
+    const handleResize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight }
+    window.addEventListener('resize', handleResize)
+    return () => { cancelAnimationFrame(animId); window.removeEventListener('resize', handleResize) }
+  }, [])
+
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Subtle background pattern */}
-      <div 
-        className="absolute inset-0 opacity-5"
-        style={{
-          backgroundImage: `
-            linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px)
-          `,
-          backgroundSize: '50px 50px',
-        }}
-      />
+    <div className="relative min-h-screen overflow-hidden" style={{ background: '#050300' }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap');
 
-      {/* Gradient overlays */}
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-950/30 via-purple-950/20 to-transparent" />
+        .askderek-page * { font-family: 'DM Sans', sans-serif; }
+        .askderek-display { font-family: 'Playfair Display', serif; }
 
-      {/* Main content */}
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-12">
-        <div className="w-full max-w-6xl">
-          <div className="grid gap-12 lg:grid-cols-2 lg:gap-16 items-center">
-            
-            {/* Left side - Professional branding */}
-            <div className="space-y-8 text-white">
-              {/* Logo & Badge */}
-              <div className="space-y-6">
-                <div className="inline-flex items-center gap-3 rounded-full bg-gradient-to-r from-blue-500/20 to-purple-500/20 px-5 py-2.5 backdrop-blur-sm border border-blue-400/20">
-                  <Sparkles className="h-4 w-4 text-blue-400" />
-                  <span className="text-sm font-semibold text-blue-200">
-                    Join 10,000+ Happy Renters
-                  </span>
-                </div>
-                
-                <div>
-                  <h1 className="text-5xl font-bold leading-tight lg:text-6xl mb-4">
-                    <span className="block text-white">Create Your</span>
-                    <span className="block bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-                      AskDerek Account
-                    </span>
-                  </h1>
-                  <div className="h-1 w-24 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full" />
-                </div>
-                
-                <p className="text-lg text-slate-300 leading-relaxed max-w-lg">
-                  Start your journey to finding the perfect home in Tarkwa and across Ghana. Join thousands of satisfied renters today.
-                </p>
-              </div>
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(32px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeSlideLeft {
+          from { opacity: 0; transform: translateX(32px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes shimmer {
+          0% { background-position: -200% center; }
+          100% { background-position: 200% center; }
+        }
+        @keyframes pulseGlow {
+          0%, 100% { box-shadow: 0 0 24px rgba(224,90,0,0.25), 0 0 80px rgba(224,90,0,0.08); }
+          50% { box-shadow: 0 0 48px rgba(224,90,0,0.45), 0 0 120px rgba(224,90,0,0.15); }
+        }
+        @keyframes kente {
+          0% { background-position: 0% 0%; }
+          100% { background-position: 100% 100%; }
+        }
+        @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-10px); } }
+        @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes rolePulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
 
-              {/* Key Benefits for Sign Up */}
-              <div className="grid grid-cols-2 gap-4">
-                {[
-                  { 
-                    icon: Zap, 
-                    title: 'Instant Access', 
-                    desc: 'Browse immediately',
-                  },
-                  { 
-                    icon: Shield, 
-                    title: 'Secure & Private', 
-                    desc: 'Data protection',
-                  },
-                  { 
-                    icon: CheckCircle2, 
-                    title: 'No Credit Card', 
-                    desc: 'Completely free',
-                  },
-                  { 
-                    icon: Users, 
-                    title: 'Save Favorites', 
-                    desc: 'Track your searches',
-                  }
-                ].map((feature, i) => (
-                  <div
-                    key={i}
-                    className="group rounded-xl bg-white/5 p-5 backdrop-blur-sm border border-white/10 hover:border-blue-400/30 transition-all duration-300 hover:bg-white/10"
-                  >
-                    <div className="mb-3 inline-flex rounded-lg bg-blue-500/10 p-2.5">
-                      <feature.icon className="h-5 w-5 text-blue-400" />
-                    </div>
-                    <h3 className="text-base font-semibold mb-1 text-white">{feature.title}</h3>
-                    <p className="text-sm text-slate-400">{feature.desc}</p>
-                  </div>
-                ))}
-              </div>
+        .animate-fade-up { animation: fadeSlideUp 0.8s ease forwards; }
+        .animate-fade-left { animation: fadeSlideLeft 0.8s ease forwards; }
+        .delay-100 { animation-delay: 0.1s; opacity: 0; }
+        .delay-200 { animation-delay: 0.2s; opacity: 0; }
+        .delay-300 { animation-delay: 0.3s; opacity: 0; }
+        .delay-400 { animation-delay: 0.4s; opacity: 0; }
+        .delay-500 { animation-delay: 0.5s; opacity: 0; }
+        .delay-600 { animation-delay: 0.6s; opacity: 0; }
 
-              {/* Real Stats */}
-              <div className="flex gap-8 pt-4 border-t border-white/10">
-                {[
-                  { number: '2,500+', label: 'Active Listings' },
-                  { number: '10K+', label: 'Happy Renters' },
-                  { number: '4.8★', label: 'Average Rating' }
-                ].map((stat, i) => (
-                  <div key={i}>
-                    <div className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                      {stat.number}
-                    </div>
-                    <div className="text-xs text-slate-400 font-medium mt-1">{stat.label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+        .gold-shimmer {
+          background: linear-gradient(90deg, #E05A00, #FBBF24, #E05A00, #FBBF24);
+          background-size: 200% auto;
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          animation: shimmer 3s linear infinite;
+        }
 
-            {/* Right side - Clean sign up card */}
-            <div className="flex items-center justify-center">
-              <div className="w-full max-w-md">
-                {/* Card with subtle glow */}
-                <div className="relative group">
-                  {/* Soft glow effect */}
-                  <div className="absolute -inset-1 bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-pink-600/20 rounded-2xl blur-xl opacity-50 group-hover:opacity-75 transition duration-300" />
-                  
-                  {/* Main card */}
-                  <div className="relative rounded-2xl bg-white/10 p-8 backdrop-blur-xl border border-white/20 shadow-2xl">
-                    {/* Header */}
-                    <div className="mb-8 text-center space-y-3">
-                      <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-400/30 mb-3">
-                        <Sparkles className="h-7 w-7 text-blue-400" />
-                      </div>
-                      <h2 className="text-2xl font-bold text-white">Create Account</h2>
-                      <p className="text-slate-300 text-sm">Join AskDerek in 30 seconds</p>
-                    </div>
-                    
-                    {/* Clerk sign up component with production styling matching sign-in */}
-                    <SignUp 
-                      appearance={{
-                        elements: {
-                          rootBox: "w-full",
-                          card: "bg-transparent shadow-none",
-                          headerTitle: "hidden",
-                          headerSubtitle: "hidden",
-                          socialButtonsBlockButton: "bg-white/10 border-white/20 text-white hover:bg-white/15 backdrop-blur-sm transition-all duration-200 font-medium",
-                          socialButtonsBlockButtonText: "text-white font-medium",
-                          formButtonPrimary: "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 h-11",
-                          formFieldInput: "bg-white/10 border-white/20 text-white placeholder:text-slate-400 backdrop-blur-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-400/30 transition-all h-11",
-                          formFieldLabel: "text-white font-medium text-sm",
-                          footerActionLink: "text-blue-400 hover:text-blue-300 font-semibold transition-colors",
-                          identityPreviewText: "text-white",
-                          formFieldInputShowPasswordButton: "text-blue-400 hover:text-blue-300",
-                          otpCodeFieldInput: "bg-white/10 border-white/20 text-white",
-                          formResendCodeLink: "text-blue-400 hover:text-blue-300 font-medium",
-                          dividerLine: "bg-white/20",
-                          dividerText: "text-slate-300 font-medium text-xs",
-                          footerActionText: "text-slate-300",
-                          footer: "hidden",
-                          identityPreviewEditButton: "text-blue-400 hover:text-blue-300",
-                        },
-                      }}
-                      routing="path"
-                      path="/sign-up"
-                      signInUrl="/sign-in"
-                      afterSignUpUrl="/select-role"
-                    />
-                    
-                    {/* Footer */}
-                    <div className="mt-6 space-y-4">
-                      <div className="relative">
-                        <div className="absolute inset-0 flex items-center">
-                          <div className="w-full border-t border-white/10" />
-                        </div>
-                        <div className="relative flex justify-center text-xs">
-                          <span className="bg-transparent px-2 text-slate-400">or</span>
-                        </div>
-                      </div>
-                      
-                      <p className="text-center text-sm text-slate-300">
-                        Already have an account?{' '}
-                        <a 
-                          href="/sign-in" 
-                          className="font-semibold text-blue-400 hover:text-blue-300 transition-colors"
-                        >
-                          Sign in here →
-                        </a>
-                      </p>
+        .kente-border {
+          background: repeating-linear-gradient(
+            45deg,
+            #E05A00 0px, #E05A00 4px,
+            #FBBF24 4px, #FBBF24 8px,
+            #78350F 8px, #78350F 12px,
+            transparent 12px, transparent 16px
+          );
+          background-size: 22px 22px;
+          animation: kente 4s linear infinite;
+        }
 
-                      {/* Terms */}
-                      <p className="text-center text-xs text-slate-400 pt-2">
-                        By signing up, you agree to our{' '}
-                        <a href="/terms" className="underline hover:text-slate-300">Terms</a>
-                        {' '}and{' '}
-                        <a href="/privacy" className="underline hover:text-slate-300">Privacy Policy</a>
-                      </p>
+        .card-glow { animation: pulseGlow 3s ease-in-out infinite; }
+        .float-el { animation: float 7s ease-in-out infinite; }
+        .spin-ring { animation: spin-slow 25s linear infinite; }
 
-                      {/* Trust badges */}
-                      <div className="flex items-center justify-center gap-4 pt-4 border-t border-white/10">
-                        <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                          <Shield className="h-3.5 w-3.5 text-green-400" />
-                          <span>Secure</span>
-                        </div>
-                        <div className="h-3 w-px bg-white/10" />
-                        <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                          <Clock className="h-3.5 w-3.5 text-blue-400" />
-                          <span>30 Seconds</span>
-                        </div>
-                        <div className="h-3 w-px bg-white/10" />
-                        <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                          <TrendingUp className="h-3.5 w-3.5 text-purple-400" />
-                          <span>Free Forever</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        .role-btn {
+          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.03);
+          cursor: pointer;
+          transition: all 0.3s ease;
+          padding: 1rem;
+          border-radius: 0.75rem;
+          text-align: center;
+        }
+        .role-btn:hover { background: rgba(224,90,0,0.08); border-color: rgba(224,90,0,0.3); }
+        .role-btn.active {
+          background: rgba(224,90,0,0.12);
+          border-color: rgba(224,90,0,0.6);
+          box-shadow: 0 0 20px rgba(224,90,0,0.15);
+        }
+
+        .benefit-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.75rem;
+          padding: 0.75rem 0;
+          border-bottom: 1px solid rgba(255,255,255,0.05);
+          transition: all 0.2s;
+        }
+        .benefit-row:last-child { border-bottom: none; }
+
+        .sign-up-card {
+          background: rgba(255,255,255,0.03);
+          border: 1px solid rgba(255,255,255,0.08);
+          backdrop-filter: blur(24px);
+        }
+
+        /* Clerk overrides */
+        .cl-rootBox { width: 100% !important; }
+        .cl-card { background: transparent !important; box-shadow: none !important; padding: 0 !important; }
+        .cl-headerTitle, .cl-headerSubtitle { display: none !important; }
+        .cl-socialButtonsBlockButton {
+          background: rgba(255,255,255,0.06) !important;
+          border: 1px solid rgba(255,255,255,0.12) !important;
+          color: white !important; transition: all 0.2s !important;
+        }
+        .cl-socialButtonsBlockButton:hover {
+          background: rgba(224,90,0,0.15) !important;
+          border-color: rgba(224,90,0,0.4) !important;
+        }
+        .cl-formButtonPrimary {
+          background: linear-gradient(135deg, #E05A00, #B45309) !important;
+          border: none !important; font-weight: 600 !important;
+          letter-spacing: 0.02em !important; transition: all 0.3s !important;
+        }
+        .cl-formButtonPrimary:hover {
+          background: linear-gradient(135deg, #F97316, #E05A00) !important;
+          transform: translateY(-1px) !important;
+          box-shadow: 0 8px 24px rgba(224,90,0,0.4) !important;
+        }
+        .cl-formFieldInput {
+          background: rgba(255,255,255,0.06) !important;
+          border: 1px solid rgba(255,255,255,0.1) !important;
+          color: white !important; transition: all 0.2s !important;
+        }
+        .cl-formFieldInput:focus {
+          border-color: rgba(224,90,0,0.6) !important;
+          box-shadow: 0 0 0 3px rgba(224,90,0,0.15) !important;
+        }
+        .cl-formFieldLabel { color: rgba(255,255,255,0.7) !important; font-size: 0.8rem !important; }
+        .cl-footerActionLink { color: #F97316 !important; }
+        .cl-footerActionLink:hover { color: #FBBF24 !important; }
+        .cl-dividerLine { background: rgba(255,255,255,0.1) !important; }
+        .cl-dividerText { color: rgba(255,255,255,0.4) !important; }
+        .cl-footer { display: none !important; }
+        .cl-identityPreviewText { color: white !important; }
+        .cl-formFieldInputShowPasswordButton { color: #F97316 !important; }
+        .cl-socialButtonsBlockButtonText { color: white !important; }
+      `}</style>
+
+      <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" />
+
+      <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse 70% 50% at 80% 30%, rgba(120,53,15,0.2) 0%, transparent 60%)' }} />
+      <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse 50% 70% at 20% 80%, rgba(224,90,0,0.08) 0%, transparent 60%)' }} />
+
+      {/* Decorative shapes */}
+      <div className="absolute top-10 right-10 w-72 h-72 opacity-5 float-el pointer-events-none">
+        <svg viewBox="0 0 200 200" fill="none">
+          <circle cx="100" cy="100" r="85" stroke="#FBBF24" strokeWidth="1.5" strokeDasharray="12 6" />
+          <circle cx="100" cy="100" r="65" stroke="#E05A00" strokeWidth="1" strokeDasharray="6 12" />
+          <polygon points="100,20 175,62 175,138 100,180 25,138 25,62" stroke="#FBBF24" strokeWidth="1" fill="none" />
+        </svg>
       </div>
 
-      {/* Footer */}
-      <div className="absolute bottom-0 left-0 right-0 z-10 border-t border-white/5 backdrop-blur-sm bg-black/20">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-slate-400">
-            <p>© 2026 AskDerek. Made in Ghana 🇬🇭</p>
-            <div className="flex gap-6">
-              <a href="/privacy" className="hover:text-white transition-colors">Privacy</a>
-              <a href="/terms" className="hover:text-white transition-colors">Terms</a>
-              <a href="/support" className="hover:text-white transition-colors">Support</a>
+      <div className="absolute bottom-20 -left-16 w-64 h-64 opacity-8 spin-ring pointer-events-none">
+        <svg viewBox="0 0 200 200" fill="none">
+          <circle cx="100" cy="100" r="90" stroke="#E05A00" strokeWidth="1" strokeDasharray="6 8" />
+        </svg>
+      </div>
+
+      {/* Main layout */}
+      <div className={`askderek-page relative z-10 min-h-screen flex items-center justify-center px-6 py-16 ${mounted ? '' : 'invisible'}`}>
+        <div className="w-full max-w-5xl grid lg:grid-cols-2 gap-14 items-start">
+
+          {/* LEFT — Sign Up card */}
+          <div className="animate-fade-up delay-200">
+            <div className="sign-up-card card-glow rounded-2xl overflow-hidden">
+
+              <div className="h-1.5 w-full kente-border" />
+
+              <div className="p-8">
+                {/* Header */}
+                <div className="mb-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #E05A00, #B45309)' }}>
+                      <span className="askderek-display text-white font-black text-sm">A</span>
+                    </div>
+                    <span className="text-xs tracking-widest uppercase font-semibold" style={{ color: 'rgba(251,191,36,0.6)' }}>AskDerek</span>
+                  </div>
+                  <h2 className="askderek-display font-bold text-2xl text-white mb-1">Join AskDerek</h2>
+                  <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem' }}>Free to join. No credit card needed.</p>
+                </div>
+
+                {/* Role selector */}
+                <div className="mb-6">
+                  <p className="text-xs font-semibold tracking-wider uppercase mb-3" style={{ color: 'rgba(255,255,255,0.35)' }}>I am joining as</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => setActiveRole('tenant')}
+                      className={`role-btn ${activeRole === 'tenant' ? 'active' : ''}`}
+                    >
+                      <div className="text-2xl mb-1">🏠</div>
+                      <div className="text-white font-semibold text-sm">Tenant</div>
+                      <div className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>Looking to rent</div>
+                    </button>
+                    <button
+                      onClick={() => setActiveRole('landlord')}
+                      className={`role-btn ${activeRole === 'landlord' ? 'active' : ''}`}
+                    >
+                      <div className="text-2xl mb-1">🔑</div>
+                      <div className="text-white font-semibold text-sm">Landlord</div>
+                      <div className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>I have property</div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Clerk SignUp */}
+                <SignUp
+                  appearance={{
+                    elements: {
+                      rootBox: 'w-full',
+                      card: 'bg-transparent shadow-none p-0',
+                      headerTitle: 'hidden',
+                      headerSubtitle: 'hidden',
+                      footer: 'hidden',
+                    },
+                  }}
+                  routing="path"
+                  path="/sign-up"
+                  signInUrl="/sign-in"
+                  afterSignUpUrl="/select-role"
+                />
+
+                <div className="mt-5 pt-5 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                  <p className="text-center text-sm" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                    Already have an account?{' '}
+                    <a href="/sign-in" className="font-semibold transition-colors" style={{ color: '#F97316' }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#FBBF24')}
+                      onMouseLeave={e => (e.currentTarget.style.color = '#F97316')}>
+                      Sign in →
+                    </a>
+                  </p>
+                  <p className="text-center text-xs mt-3" style={{ color: 'rgba(255,255,255,0.2)' }}>
+                    By signing up you agree to our{' '}
+                    <a href="/terms" style={{ color: 'rgba(249,115,22,0.6)' }}>Terms</a> &{' '}
+                    <a href="/privacy" style={{ color: 'rgba(249,115,22,0.6)' }}>Privacy Policy</a>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 text-center">
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.15)' }}>© 2026 AskDerek · Tarkwa, Ghana 🇬🇭</p>
             </div>
           </div>
+
+          {/* RIGHT — Why join */}
+          <div className="space-y-10 animate-fade-left delay-300 lg:pt-8">
+
+            <div className="space-y-3">
+              <div className="text-xs tracking-[0.3em] uppercase font-semibold" style={{ color: 'rgba(251,191,36,0.6)' }}>
+                {activeRole === 'tenant' ? 'For Renters' : 'For Landlords'}
+              </div>
+              <h2 className="askderek-display font-black text-white" style={{ fontSize: 'clamp(2rem, 3.5vw, 3rem)', lineHeight: 1.15 }}>
+                {activeRole === 'tenant' ? (
+                  <>Find Your<br /><span className="gold-shimmer">Perfect Room</span><br />in Tarkwa</>
+                ) : (
+                  <>List Your<br /><span className="gold-shimmer">Property</span><br />Get Tenants</>
+                )}
+              </h2>
+              <div className="h-1.5 w-20 rounded-full kente-border" />
+            </div>
+
+            <div className="space-y-0">
+              {(activeRole === 'tenant' ? [
+                { icon: '🔍', title: 'Search by neighbourhood', desc: 'New Atuabo, UMaT area, Tamso, Kwabedu — find exactly where you want to live' },
+                { icon: '📸', title: 'Real photos, no lies', desc: 'See bedroom, kitchen, bathroom before you visit. What you see is what you get' },
+                { icon: '💳', title: 'Pay rent via MoMo', desc: 'MTN MoMo, Vodafone Cash or card — no cash, no stress, digital receipt always' },
+                { icon: '🚫', title: 'Zero agent fees', desc: 'Apply directly to landlords. Never pay an agent again' },
+              ] : [
+                { icon: '📱', title: 'List in 5 minutes', desc: 'Upload photos, set price, go live. Your property in front of serious tenants fast' },
+                { icon: '✅', title: 'Verified tenants only', desc: 'Every applicant has a verified account. Choose who lives in your property' },
+                { icon: '💰', title: 'Collect rent online', desc: 'Payments come straight to your account. No chasing, no cash, clean records' },
+                { icon: '📊', title: 'Dashboard & records', desc: 'Track leases, payments and applications all in one place on any phone' },
+              ]).map((b, i) => (
+                <div key={i} className="benefit-row">
+                  <div className="text-xl flex-shrink-0 mt-0.5">{b.icon}</div>
+                  <div>
+                    <div className="text-white font-semibold text-sm">{b.title}</div>
+                    <div className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>{b.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Bottom proof */}
+            <div className="rounded-xl p-4" style={{ background: 'rgba(224,90,0,0.07)', border: '1px solid rgba(224,90,0,0.15)' }}>
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">⛏️</div>
+                <div>
+                  <div className="text-white font-semibold text-sm">Built for Tarkwa</div>
+                  <div className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                    Serving UMaT students, Goldfields workers, and the entire Tarkwa community. Ghana's first rental platform built for mining towns.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>

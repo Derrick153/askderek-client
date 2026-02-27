@@ -166,7 +166,7 @@ export default function ManagerPropertiesPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {properties.map((property: any) => (
+            {properties?.map((property: any) => (
               <PropertyCard key={property.id} property={property} />
             ))}
           </div>

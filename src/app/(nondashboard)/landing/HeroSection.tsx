@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -58,58 +58,72 @@ const HeroSection = () => {
   const [queryIndex, setQueryIndex] = useState(0);
   const [charIndex, setCharIndex] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
   /* ===========================
-     TYPEWRITER EFFECT
+     TYPEWRITER EFFECT — FIXED
   =========================== */
 
   useEffect(() => {
     if (reduceMotion) return;
 
     const currentText = AUTO_QUERIES[queryIndex];
+
+    // Pause between finish typing and start deleting
+    if (isPaused) {
+      const pauseTimer = setTimeout(() => {
+        setIsPaused(false);
+        setIsDeleting(true);
+      }, 2000);
+      return () => clearTimeout(pauseTimer);
+    }
+
     const speed = isDeleting ? 40 : 80;
 
     const timeout = setTimeout(() => {
       if (!isDeleting) {
-        setPlaceholder(currentText.slice(0, charIndex + 1));
-        setCharIndex((prev) => prev + 1);
+        const next = charIndex + 1;
+        setPlaceholder(currentText.slice(0, next));
 
-        if (charIndex === currentText.length) {
-          setTimeout(() => setIsDeleting(true), 2000);
+        if (next >= currentText.length) {
+          setIsPaused(true); // pause before deleting
+        } else {
+          setCharIndex(next);
         }
       } else {
-        setPlaceholder(currentText.slice(0, charIndex - 1));
-        setCharIndex((prev) => prev - 1);
+        const next = charIndex - 1;
+        setPlaceholder(currentText.slice(0, Math.max(0, next)));
 
-        if (charIndex === 0) {
+        if (next <= 0) {
+          // move to next query
           setIsDeleting(false);
+          setCharIndex(0);
+          setPlaceholder("");
           setQueryIndex((prev) => (prev + 1) % AUTO_QUERIES.length);
+        } else {
+          setCharIndex(next);
         }
       }
     }, speed);
 
     return () => clearTimeout(timeout);
-  }, [charIndex, isDeleting, queryIndex, reduceMotion]);
+  }, [charIndex, isDeleting, isPaused, queryIndex, reduceMotion]);
 
   /* ===========================
-     SEARCH HANDLER - NO MAPBOX!
+     SEARCH HANDLER — FIXED
   =========================== */
 
-  const handleLocationSearch = (forcedQuery?: string) => {
-    const queryToSearch = (forcedQuery || searchQuery).trim();
-    if (!queryToSearch) return;
+  const handleLocationSearch = useCallback(
+    (forcedQuery?: string) => {
+      const queryToSearch = (forcedQuery || searchQuery).trim();
+      if (!queryToSearch) return;
 
-    // Set filters with location only - backend handles city search
-    dispatch(
-      setFilters({
-        location: queryToSearch,
-        coordinates: [0, 0], // Not needed for city search
-      })
-    );
-
-    // Navigate to search with location parameter
-    router.push(`/search?location=${encodeURIComponent(queryToSearch)}`);
-  };
+      // No coordinates needed — backend searches by city name
+      dispatch(setFilters({ location: queryToSearch }));
+      router.push(`/search?location=${encodeURIComponent(queryToSearch)}`);
+    },
+    [searchQuery, dispatch, router]
+  );
 
   /* ===========================
      RENDER
@@ -117,6 +131,7 @@ const HeroSection = () => {
 
   return (
     <section className="relative h-screen min-h-[850px] overflow-hidden bg-slate-900">
+
       {/* Background */}
       <motion.div
         initial={{ scale: 1.1 }}
@@ -137,21 +152,11 @@ const HeroSection = () => {
 
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center justify-center h-full px-4 text-center pt-20">
-        {/* Badge */}
-        <span className="mb-6 px-6 py-2 rounded-full border border-secondary-500/40 bg-secondary-500/10 text-secondary-400 text-[10px] font-bold tracking-[0.4em] uppercase">
-          Built in Tarkwa • Verified in Tarkwa
-        </span>
 
         {/* Brand */}
         <h1 className="text-5xl md:text-8xl font-black text-white tracking-tighter leading-none mb-6">
-          ASK <span className="text-secondary-500 italic">DEREK</span>
+          ASK <span className="text-orange-500 italic">DEREK</span>
         </h1>
-
-        {/* Value Proposition */}
-        <p className="max-w-2xl text-lg md:text-xl text-slate-300 mb-10 font-light">
-          Real, verified homes and hostels — exact locations, real photos,
-          transparent pricing. No agents. No scams.
-        </p>
 
         {/* Search */}
         <div className="relative w-full max-w-2xl">
@@ -170,22 +175,23 @@ const HeroSection = () => {
             />
             <Button
               onClick={() => handleLocationSearch()}
-              className="h-14 md:h-16 px-10 bg-secondary-500 hover:bg-black text-white font-bold uppercase tracking-widest rounded-xl transition-all"
+              className="h-14 md:h-16 px-10 bg-orange-500 hover:bg-orange-600 text-white font-bold uppercase tracking-widest rounded-xl transition-all"
             >
               Search
             </Button>
           </div>
         </div>
 
-        {/* Trust Signals */}
-        <div className="mt-6 flex flex-wrap justify-center gap-6 text-xs text-slate-300">
+        {/* Trust Signals — below search, small and simple */}
+        <div className="mt-5 flex flex-wrap justify-center gap-6 text-xs text-slate-400">
           <span>✔ Location Verified</span>
           <span>✔ Real Photos Only</span>
           <span>✔ No Agent Middlemen</span>
+          <span>✔ Transparent Pricing. No Scams.</span>
         </div>
 
         {/* Location Chips */}
-        <div className="mt-16 max-w-4xl w-full">
+        <div className="mt-12 max-w-4xl w-full">
           <p className="text-white/60 text-[10px] uppercase tracking-[0.5em] mb-8 font-black italic">
             Browse popular neighborhoods
           </p>
@@ -201,13 +207,14 @@ const HeroSection = () => {
                 whileTap={{ scale: 0.95 }}
                 transition={{ delay: index * 0.04 }}
                 onClick={() => handleLocationSearch(loc)}
-                className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-xs font-bold uppercase text-slate-300 backdrop-blur-sm hover:bg-white/10 hover:border-secondary-500/50 transition-all"
+                className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-xs font-bold uppercase text-slate-300 backdrop-blur-sm hover:bg-white/10 hover:border-orange-500/50 transition-all"
               >
                 {loc}
               </motion.button>
             ))}
           </div>
         </div>
+
       </div>
     </section>
   );

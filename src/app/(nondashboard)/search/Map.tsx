@@ -1,5 +1,5 @@
-// components/Map.tsx
 "use client";
+
 import React, { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -7,15 +7,8 @@ import { useAppSelector } from "@/state/redux";
 import { useGetPropertiesQuery } from "@/state/api";
 import { Property } from "@/types/prismaTypes";
 
-// Replace with your Tarkwa style URL
-const MAPBOX_STYLE = "mapbox://styles/askderek-tarkwa/cmkftvlao00cc01sd8lo7gdz6";
-
-// Western Region Ghana coordinates
-const WESTERN_REGION_CENTER: [number, number] = [-1.9856, 5.3068]; // Tarkwa
-const WESTERN_REGION_BOUNDS: mapboxgl.LngLatBoundsLike = [
-  [-3.2, 4.5], // Southwest
-  [-2.0, 5.8]  // Northeast
-];
+const TARKWA_CENTER: [number, number] = [-1.9856, 5.3068];
+const GHANA_BOUNDS: mapboxgl.LngLatBoundsLike = [[-3.5, 4.2], [-0.5, 6.0]];
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN as string;
 
@@ -23,319 +16,264 @@ const Map = () => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
-  
-  const filters = useAppSelector((state) => state.global.filters);
-  const {
-    data: properties,
-    isLoading,
-    isError,
-  } = useGetPropertiesQuery(filters);
-
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [activeProperty, setActiveProperty] = useState<number | null>(null);
 
-  // Initialize map only once
+  const filters = useAppSelector((state) => state.global.filters);
+  const { data: properties, isLoading, isError } = useGetPropertiesQuery(filters);
+
+  // Init map once
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
-      style: MAPBOX_STYLE, // Your custom Tarkwa style
-      center: filters.coordinates || WESTERN_REGION_CENTER,
-      zoom: 11, // Better zoom for Western Region
-      maxBounds: WESTERN_REGION_BOUNDS,
-      attributionControl: false
+      style: "mapbox://styles/mapbox/light-v11",
+      center: filters.coordinates || TARKWA_CENTER,
+      zoom: 12,
+      maxBounds: GHANA_BOUNDS,
+      attributionControl: false,
     });
 
-    // Add navigation controls
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-    map.addControl(new mapboxgl.FullscreenControl());
-    
-    // Add scale (kilometers for Ghana)
-    map.addControl(new mapboxgl.ScaleControl({
-      maxWidth: 100,
-      unit: 'metric'
-    }), 'bottom-right');
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
+    map.addControl(new mapboxgl.ScaleControl({ maxWidth: 80, unit: "metric" }), "bottom-right");
 
-    map.on('load', () => {
+    map.on("load", () => {
       setMapLoaded(true);
-      // Add Western Region specific layers if needed
-      addWesternRegionFeatures(map);
+
+      // Style water and roads for Ghana vibe
+      try {
+        if (map.getLayer("water")) map.setPaintProperty("water", "fill-color", "#D4EAF7");
+        if (map.getLayer("land")) map.setPaintProperty("land", "background-color", "#FAFAF8");
+      } catch (_) {}
     });
 
     mapRef.current = map;
 
-    // Handle window resize with proper debouncing
-    let resizeTimeout: NodeJS.Timeout;
-    const handleResize = () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(() => {
-        map.resize();
-      }, 250);
-    };
-
-    window.addEventListener('resize', handleResize);
+    let resizeTimer: ReturnType<typeof setTimeout>;
+    const onResize = () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => map.resize(), 200); };
+    window.addEventListener("resize", onResize);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
-      clearTimeout(resizeTimeout);
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
+      window.removeEventListener("resize", onResize);
+      clearTimeout(resizeTimer);
+      mapRef.current?.remove();
+      mapRef.current = null;
     };
-  }, []); // Empty dependency - init only once
+  }, []);
 
-  // Update map center when filters change
+  // Fly to filter coordinates
   useEffect(() => {
-    if (!mapRef.current || !mapLoaded) return;
-    
-    if (filters.coordinates) {
-      mapRef.current.flyTo({
-        center: filters.coordinates,
-        zoom: 13,
-        duration: 1000
-      });
-    }
+    if (!mapRef.current || !mapLoaded || !filters.coordinates) return;
+    mapRef.current.flyTo({ center: filters.coordinates, zoom: 13, duration: 1200, essential: true });
   }, [filters.coordinates, mapLoaded]);
 
-  // Update markers when properties change
+  // Update markers
   useEffect(() => {
     if (!mapRef.current || !mapLoaded || !properties) return;
 
-    // Clear existing markers
-    markersRef.current.forEach(marker => marker.remove());
+    markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
 
-    // Add new markers
     properties.forEach((property) => {
-      if (property.location?.coordinates) {
-        const marker = createPropertyMarker(property, mapRef.current!);
-        markersRef.current.push(marker);
-      }
+      if (!property.location?.coordinates) return;
+      const marker = buildMarker(property, mapRef.current!, setActiveProperty);
+      markersRef.current.push(marker);
     });
   }, [properties, mapLoaded]);
 
-  const addWesternRegionFeatures = (map: mapboxgl.Map) => {
-    // Add important locations in Western Region
-    const landmarks = [
-      { name: "Tarkwa", coordinates: [-1.9856, 5.3068], icon: "🏭" },
-      { name: "Takoradi", coordinates: [-1.7831, 4.9016], icon: "🌊" },
-      { name: "Sekondi", coordinates: [-1.7040, 4.9431], icon: "⚓" },
-      { name: "Axim", coordinates: [-2.2405, 4.8690], icon: "🏖️" },
-      { name: "UMaT", coordinates: [-1.9556, 5.2983], icon: "🎓" },
-    ];
-
-    landmarks.forEach(landmark => {
-      const el = document.createElement('div');
-      el.className = 'town-label';
-      el.innerHTML = `
-        <div class="bg-white/90 backdrop-blur-sm px-2 py-1 rounded shadow text-xs font-semibold border border-blue-200">
-          ${landmark.icon} ${landmark.name}
-        </div>
-      `;
-
-      new mapboxgl.Marker(el)
-        .setLngLat(landmark.coordinates as [number, number])
-        .addTo(map);
-    });
-  };
-
-  const createPropertyMarker = (property: Property, map: mapboxgl.Map) => {
-    // Create custom marker element
-    const el = document.createElement('div');
-    el.className = 'property-marker';
-    
-    // Determine marker color based on property type
-    let markerColor = '#3B82F6'; // Default blue for houses
-    let markerIcon = '🏠';
-    
-    switch(property.propertyType?.toLowerCase()) {
-      case 'land':
-        markerColor = '#10B981';
-        markerIcon = '📍';
-        break;
-      case 'commercial':
-        markerColor = '#F59E0B';
-        markerIcon = '🏢';
-        break;
-      case 'apartment':
-        markerColor = '#8B5CF6';
-        markerIcon = '🏘️';
-        break;
-    }
-
-    el.innerHTML = `
-      <div class="relative cursor-pointer">
-        <div class="w-10 h-10 rounded-full flex items-center justify-center text-white text-base shadow-lg hover:scale-110 transition-transform"
-             style="background-color: ${markerColor};">
-          ${markerIcon}
-        </div>
-        ${property.pricePerMonth && property.pricePerMonth < 1000 ? 
-          `<div class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] px-1 rounded-full">Hot</div>` : ''}
-      </div>
-    `;
-
-    // Create enhanced popup
-    const popupContent = `
-      <div class="property-popup p-3 max-w-xs">
-        <div class="flex items-start gap-3">
-          <div class="w-16 h-16 bg-gray-200 rounded flex items-center justify-center">
-            ${markerIcon}
-          </div>
-          <div>
-            <h4 class="font-bold text-sm mb-1">${property.name || 'Property'}</h4>
-            <p class="text-green-600 font-bold text-lg">GH₵ ${property.pricePerMonth?.toLocaleString() || 'N/A'}</p>
-            <p class="text-gray-600 text-xs">${property.location?.address || 'Western Region'}</p>
-            <div class="flex gap-2 mt-2">
-              ${property.beds ? `<span class="text-xs bg-gray-100 px-2 py-1 rounded">${property.beds} beds</span>` : ''}
-              ${property.baths ? `<span class="text-xs bg-gray-100 px-2 py-1 rounded">${property.baths} baths</span>` : ''}
-            </div>
-          </div>
-        </div>
-        <div class="mt-3 pt-3 border-t border-gray-200">
-          <button onclick="window.open('/search/${property.id}', '_blank')" 
-                  class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded text-sm font-medium transition">
-            View Details
-          </button>
-          <button onclick="window.open('https://wa.me/?text=Hello, I\\'m interested in ${encodeURIComponent(property.name || 'this property')}', '_blank')"
-                  class="w-full mt-2 bg-green-600 hover:bg-green-700 text-white py-2 rounded text-sm font-medium transition">
-            💬 WhatsApp Inquiry
-          </button>
-        </div>
-      </div>
-    `;
-
-    const popup = new mapboxgl.Popup({
-      offset: 25,
-      closeButton: false,
-      className: 'custom-popup'
-    }).setHTML(popupContent);
-
-    const marker = new mapboxgl.Marker(el)
-      .setLngLat([
-        property.location.coordinates.longitude,
-        property.location.coordinates.latitude
-      ])
-      .setPopup(popup)
-      .addTo(map);
-
-    // Add click handler
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      // Center map on property
-      map.flyTo({
-        center: [
-          property.location.coordinates.longitude,
-          property.location.coordinates.latitude
-        ],
-        zoom: 15,
-        duration: 1000
-      });
-    });
-
-    return marker;
-  };
-
-  if (isLoading) {
-    return (
-      <div className="basis-5/12 grow relative rounded-xl bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading Western Region map...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (isError || !properties) {
-    return (
-      <div className="basis-5/12 grow relative rounded-xl bg-red-50 flex items-center justify-center">
-        <div className="text-center p-6">
-          <div className="text-4xl mb-4">⚠️</div>
-          <p className="text-red-600 font-medium">Failed to load properties</p>
-          <p className="text-gray-600 text-sm mt-2">Please check your connection</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="basis-5/12 grow relative rounded-xl overflow-hidden">
-      {/* Map Container */}
-      <div
-        ref={mapContainerRef}
-        className="absolute inset-0 rounded-xl"
-      />
-      
-      {/* Map Controls Overlay */}
-      <div className="absolute top-4 right-4 flex flex-col gap-2">
-        <button
-          onClick={() => {
-            if (mapRef.current) {
-              mapRef.current.flyTo({
-                center: WESTERN_REGION_CENTER,
-                zoom: 11,
-                duration: 1000
-              });
-            }
-          }}
-          className="bg-white p-2 rounded shadow hover:shadow-md transition"
-          title="Reset to Tarkwa view"
-        >
-          <span className="text-lg">📍</span>
-        </button>
-        <button
-          onClick={() => {
-            if (mapRef.current) {
-              mapRef.current.zoomIn();
-            }
-          }}
-          className="bg-white p-2 rounded shadow hover:shadow-md transition"
-          title="Zoom in"
-        >
-          <span className="text-lg">➕</span>
-        </button>
-        <button
-          onClick={() => {
-            if (mapRef.current) {
-              mapRef.current.zoomOut();
-            }
-          }}
-          className="bg-white p-2 rounded shadow hover:shadow-md transition"
-          title="Zoom out"
-        >
-          <span className="text-lg">➖</span>
-        </button>
-      </div>
-      
-      {/* Property Count */}
-      <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-4 py-2 rounded shadow">
-        <div className="font-semibold text-blue-600">
-          {properties.length} properties
-        </div>
-        <div className="text-xs text-gray-500">in Western Region</div>
-      </div>
-      
-      {/* Legend */}
-      <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm p-3 rounded shadow">
-        <h4 className="font-bold text-sm mb-2">Property Types</h4>
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-            <span className="text-xs">Houses</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-green-500"></div>
-            <span className="text-xs">Land</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-            <span className="text-xs">Commercial</span>
-          </div>
-        </div>
+  if (isLoading) return (
+    <div className="basis-5/12 grow relative rounded-2xl overflow-hidden flex items-center justify-center" style={{ background: '#FFFBF5', border: '1px solid #FDE8C8' }}>
+      <div className="text-center space-y-3">
+        <div className="w-10 h-10 rounded-full border-2 border-t-orange-500 border-orange-200 animate-spin mx-auto" />
+        <p className="text-sm font-medium" style={{ color: '#92400E' }}>Loading Tarkwa map…</p>
       </div>
     </div>
   );
+
+  if (isError || !properties) return (
+    <div className="basis-5/12 grow relative rounded-2xl overflow-hidden flex items-center justify-center" style={{ background: '#FFF7F7', border: '1px solid #FECACA' }}>
+      <div className="text-center space-y-2 p-8">
+        <div className="text-3xl">⚠️</div>
+        <p className="font-semibold text-red-600 text-sm">Could not load map</p>
+        <p className="text-xs text-gray-500">Please check your connection</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap');
+        .map-syne { font-family: 'Syne', sans-serif; }
+        .map-sans { font-family: 'DM Sans', sans-serif; }
+
+        .property-pin {
+          cursor: pointer;
+          transition: transform 0.2s ease;
+          filter: drop-shadow(0 4px 8px rgba(224,90,0,0.35));
+        }
+        .property-pin:hover { transform: scale(1.15) translateY(-2px); }
+
+        .mapboxgl-ctrl-group {
+          border: 1px solid #FDE8C8 !important;
+          border-radius: 12px !important;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
+        }
+        .mapboxgl-ctrl-group button {
+          border-color: #FEF3C7 !important;
+        }
+        .mapboxgl-ctrl-scale {
+          background: rgba(255,255,255,0.9) !important;
+          border: 1px solid #FDE8C8 !important;
+          border-radius: 8px !important;
+          font-size: 10px !important;
+          color: #92400E !important;
+          backdrop-filter: blur(4px) !important;
+        }
+
+        .askderek-map-popup .mapboxgl-popup-content {
+          border-radius: 16px !important;
+          padding: 0 !important;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.12) !important;
+          border: 1px solid #FDE8C8 !important;
+          overflow: hidden !important;
+        }
+        .askderek-map-popup .mapboxgl-popup-close-button {
+          color: #9CA3AF !important;
+          font-size: 16px !important;
+          padding: 6px 10px !important;
+          z-index: 10;
+        }
+        .askderek-map-popup .mapboxgl-popup-tip {
+          border-top-color: white !important;
+        }
+
+        @keyframes markerPop {
+          0% { transform: scale(0) translateY(10px); opacity: 0; }
+          70% { transform: scale(1.1) translateY(-2px); }
+          100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+        .marker-anim { animation: markerPop 0.4s ease forwards; }
+      `}</style>
+
+      <div className="basis-5/12 grow relative rounded-2xl overflow-hidden map-sans" style={{ border: '1px solid #FDE8C8', boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}>
+        <div ref={mapContainerRef} className="absolute inset-0" />
+
+        {/* Property count */}
+        <div className="absolute top-4 left-4 rounded-xl px-4 py-2.5" style={{ background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(8px)', border: '1px solid #FDE8C8', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+          <div className="map-syne font-bold" style={{ color: '#E05A00', fontSize: '1rem' }}>
+            {properties.length}
+          </div>
+          <div className="text-xs" style={{ color: '#9CA3AF' }}>properties</div>
+        </div>
+
+        {/* Reset button */}
+        <button
+          onClick={() => mapRef.current?.flyTo({ center: TARKWA_CENTER, zoom: 12, duration: 1000 })}
+          className="absolute top-16 right-4 w-9 h-9 rounded-xl flex items-center justify-center text-base transition-all"
+          style={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #FDE8C8', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', backdropFilter: 'blur(8px)' }}
+          title="Reset to Tarkwa"
+        >
+          🏠
+        </button>
+
+        {/* Legend */}
+        <div className="absolute bottom-10 left-4 rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #FDE8C8', backdropFilter: 'blur(8px)', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+          <div className="map-syne font-bold text-xs text-gray-700 mb-2">Property Types</div>
+          <div className="space-y-1.5">
+            {[
+              { color: '#E05A00', label: 'House / Room' },
+              { color: '#8B5CF6', label: 'Apartment' },
+              { color: '#10B981', label: 'Land' },
+              { color: '#F59E0B', label: 'Commercial' },
+            ].map((t) => (
+              <div key={t.label} className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: t.color }} />
+                <span className="text-xs" style={{ color: '#6B7280' }}>{t.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
 };
+
+// ─── Marker builder ───────────────────────────────────────────────────────────
+function buildMarker(
+  property: Property,
+  map: mapboxgl.Map,
+  setActive: (id: number | null) => void
+): mapboxgl.Marker {
+  const typeColors: Record<string, string> = {
+    apartment: "#8B5CF6",
+    land: "#10B981",
+    commercial: "#F59E0B",
+  };
+  const color = typeColors[property.propertyType?.toLowerCase() ?? ""] ?? "#E05A00";
+
+  const el = document.createElement("div");
+  el.className = "property-pin marker-anim";
+  el.innerHTML = `
+    <svg width="40" height="52" viewBox="0 0 40 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 0C8.954 0 0 8.954 0 20c0 14.142 20 32 20 32s20-17.858 20-32C40 8.954 31.046 0 20 0z" fill="${color}"/>
+      <circle cx="20" cy="19" r="9" fill="white" opacity="0.9"/>
+      <text x="20" y="24" text-anchor="middle" font-size="11" font-family="DM Sans, sans-serif" font-weight="700" fill="${color}">
+        ₵${Math.round(property.pricePerMonth / 1000)}k
+      </text>
+    </svg>
+  `;
+
+  const popupHTML = `
+    <div style="font-family: 'DM Sans', sans-serif; width: 240px;">
+      <div style="background: linear-gradient(135deg, ${color}, ${color}CC); padding: 14px 16px;">
+        <div style="font-weight: 700; color: white; font-size: 0.9rem; margin-bottom: 2px;">${property.name}</div>
+        <div style="color: rgba(255,255,255,0.8); font-size: 0.72rem;">📍 ${property.location?.address || 'Tarkwa, Ghana'}</div>
+      </div>
+      <div style="padding: 12px 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <div>
+            <div style="font-weight: 800; color: #E05A00; font-size: 1.1rem; font-family: 'Syne', sans-serif;">GH₵ ${property.pricePerMonth.toLocaleString()}</div>
+            <div style="color: #9CA3AF; font-size: 0.68rem;">per month</div>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            ${property.beds ? `<span style="background: #FEF3C7; color: #92400E; padding: 3px 8px; border-radius: 100px; font-size: 0.7rem; font-weight: 600;">${property.beds} bd</span>` : ''}
+            ${property.baths ? `<span style="background: #EFF6FF; color: #1D4ED8; padding: 3px 8px; border-radius: 100px; font-size: 0.7rem; font-weight: 600;">${property.baths} ba</span>` : ''}
+          </div>
+        </div>
+        <a href="/search/${property.id}"
+           style="display: block; width: 100%; background: linear-gradient(135deg, #E05A00, #B45309); color: white; text-align: center; padding: 9px; border-radius: 10px; font-weight: 600; font-size: 0.8rem; text-decoration: none; transition: all 0.2s;"
+           onmouseover="this.style.background='linear-gradient(135deg, #F97316, #E05A00)'"
+           onmouseout="this.style.background='linear-gradient(135deg, #E05A00, #B45309)'">
+          View Property →
+        </a>
+      </div>
+    </div>
+  `;
+
+  const popup = new mapboxgl.Popup({
+    offset: 48,
+    closeButton: true,
+    className: "askderek-map-popup",
+  }).setHTML(popupHTML);
+
+  const marker = new mapboxgl.Marker(el)
+    .setLngLat([property.location.coordinates.longitude, property.location.coordinates.latitude])
+    .setPopup(popup)
+    .addTo(map);
+
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setActive(property.id);
+    map.flyTo({
+      center: [property.location.coordinates.longitude, property.location.coordinates.latitude],
+      zoom: 15,
+      duration: 900,
+    });
+  });
+
+  return marker;
+}
 
 export default Map;

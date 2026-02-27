@@ -51,7 +51,7 @@ export const api = createApi({
       queryFn: async () => {
         try {
           // Get current Clerk user from window.Clerk (available after Clerk loads)
-          const clerkUser = window.Clerk?.user;
+          const clerkUser = (window as any).Clerk?.user;
 
           if (!clerkUser) {
             return { data: null };
@@ -85,6 +85,7 @@ export const api = createApi({
       query: (filters) => {
         const params = cleanParams({
           location: filters.location,
+          area: filters.area,
           priceMin: filters.priceRange?.[0],
           priceMax: filters.priceRange?.[1],
           beds: filters.beds,

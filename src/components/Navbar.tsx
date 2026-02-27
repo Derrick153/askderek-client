@@ -2,84 +2,184 @@
 
 import { NAVBAR_HEIGHT } from "@/lib/constants";
 import Link from "next/link";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Button } from "./ui/button";
-import { usePathname } from "next/navigation";
-import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
+import { usePathname, useRouter } from "next/navigation";
+import {
+  SignInButton,
+  SignedIn,
+  SignedOut,
+  UserButton,
+  useUser,
+} from "@clerk/nextjs";
 import { SidebarTrigger } from "./ui/sidebar";
 
-const Navbar = () => {
-  const pathname = usePathname();
+/* ─────────────────────────────────────────────
+   AD LOGO
+───────────────────────────────────────────── */
+const ADLogo = () => (
+  <svg
+    width="38"
+    height="38"
+    viewBox="0 0 40 40"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-label="AskDerek"
+    className="flex-shrink-0"
+  >
+    <rect width="40" height="40" rx="10" fill="#EA580C" />
+    <path
+      d="M13 27L20 11L27 27"
+      stroke="white"
+      strokeWidth="2.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <line
+      x1="15.5" y1="22"
+      x2="24.5" y2="22"
+      stroke="white"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    />
+    <path
+      d="M22 14H26C28.2 14 30 15.8 30 18V22C30 24.2 28.2 26 26 26H22V14Z"
+      fill="white"
+      fillOpacity="0.2"
+      stroke="white"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
-  const isDashboardPage =
-    pathname.includes("/managers") || pathname.includes("/tenants");
+/* ─────────────────────────────────────────────
+   ROLLING TICKER
+   Akwaban = Welcome in Akan (Twi)
+───────────────────────────────────────────── */
+const MESSAGES = [
+  "Akwaban — Welcome to AskDerek",
+  "Your Home in Tarkwa Starts Here",
+  "Real Homes. Real Owners. Real Ghana.",
+  "Find Your Place. No Stress. No Scams.",
+];
+
+const RollingTicker = () => {
+  const [index, setIndex] = useState(0);
+  const [show, setShow] = useState(true);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setShow(false);
+      setTimeout(() => {
+        setIndex((i) => (i + 1) % MESSAGES.length);
+        setShow(true);
+      }, 350);
+    }, 3500);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
-    <div
-      className="fixed top-0 left-0 w-full z-50 shadow-2xl border-b border-secondary-500/20"
+    <div className="hidden md:flex items-center gap-2 overflow-hidden max-w-xs lg:max-w-sm">
+      <span className="w-1.5 h-1.5 rounded-full bg-orange-500 flex-shrink-0 animate-pulse" />
+      <span
+        className="text-[11px] font-semibold text-slate-400 whitespace-nowrap truncate"
+        style={{
+          opacity: show ? 1 : 0,
+          transform: show ? "translateY(0)" : "translateY(-5px)",
+          transition: "opacity 0.3s ease, transform 0.3s ease",
+        }}
+      >
+        {MESSAGES[index]}
+      </span>
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────
+   NAVBAR
+───────────────────────────────────────────── */
+const Navbar = () => {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { user } = useUser();
+
+  const isDashboard =
+    pathname.includes("/managers") || pathname.includes("/tenants");
+
+  const dashboardHref =
+    (user?.unsafeMetadata?.userType as string) === "manager"
+      ? "/managers/properties"
+      : "/tenants/applications";
+
+  return (
+    <nav
+      className="fixed top-0 left-0 w-full z-[100] border-b border-white/[0.06] bg-slate-950/90 backdrop-blur-xl"
       style={{ height: `${NAVBAR_HEIGHT}px` }}
     >
-      <div className="flex justify-between items-center w-full py-4 px-8 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white">
-        {/* LEFT SECTION - Logo & Actions */}
-        <div className="flex items-center gap-6 md:gap-8">
-          {isDashboardPage && (
-            <div className="md:hidden">
-              <SidebarTrigger />
+      <div className="h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 flex items-center justify-between gap-4">
+
+        {/* LEFT */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {isDashboard && (
+            <div className="md:hidden border-r border-white/10 pr-3">
+              <SidebarTrigger className="text-white hover:bg-white/10 transition-colors rounded-lg p-1" />
             </div>
           )}
-
-          {/* ASK DEREK LOGO */}
           <Link
             href="/"
-            className="cursor-pointer hover:opacity-90 transition-all duration-300"
             scroll={false}
+            className="flex items-center gap-2.5 hover:opacity-85 transition-opacity"
           >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-secondary-500 to-secondary-600 rounded-lg flex items-center justify-center shadow-lg">
-                <span className="text-white font-black text-xl">D</span>
-              </div>
-              <div className="text-2xl font-black tracking-tight">
-                ASK{" "}
-                <span className="text-secondary-500 italic font-black">
-                  DEREK
-                </span>
-              </div>
+            <ADLogo />
+            <div className="flex flex-col leading-none">
+              <span className="text-[8px] font-black text-orange-500 tracking-[0.4em] uppercase">
+                Ghana
+              </span>
+              <span className="text-[18px] sm:text-[20px] font-black text-white tracking-tight leading-none uppercase">
+                ASK<span className="text-orange-500 italic">DEREK</span>
+              </span>
             </div>
           </Link>
         </div>
 
-        {/* CENTER SECTION - Tagline */}
-        {!isDashboardPage && (
-          <p className="text-slate-300 hidden lg:block text-sm font-light italic tracking-wide">
-            🇬🇭 Find verified homes in Tarkwa • No agents • No scams
-          </p>
-        )}
+        {/* CENTER */}
+        {!isDashboard && <RollingTicker />}
 
-        {/* RIGHT SECTION - User Actions */}
-        <div className="flex items-center gap-5">
+        {/* RIGHT */}
+        <div className="flex items-center gap-3 flex-shrink-0">
           <SignedOut>
             <SignInButton mode="modal">
-              <Button
-                variant="outline"
-                className="text-white border-2 border-slate-600 bg-transparent hover:bg-white hover:text-slate-900 rounded-lg font-semibold transition-all duration-300"
-              >
+              <Button className="h-9 px-5 sm:px-6 bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-black uppercase tracking-widest rounded-lg border-b-2 border-orange-700 active:border-b-0 active:translate-y-px transition-all duration-150 shadow-md shadow-orange-950/40">
                 Sign In
               </Button>
             </SignInButton>
           </SignedOut>
 
           <SignedIn>
-            <UserButton 
-              appearance={{
-                elements: {
-                  avatarBox: "h-10 w-10 ring-2 ring-secondary-500/30 hover:ring-secondary-500/60 transition-all"
-                }
-              }}
-            />
+            <div className="flex items-center gap-3 pl-3 border-l border-white/10">
+              <button
+                onClick={() => router.push(dashboardHref)}
+                className="hidden sm:block text-[10px] font-black text-slate-500 hover:text-orange-500 uppercase tracking-widest transition-colors duration-150"
+              >
+                Dashboard
+              </button>
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox:
+                      "h-9 w-9 ring-2 ring-orange-500/20 hover:ring-orange-500/60 transition-all rounded-lg",
+                    userButtonPopoverCard:
+                      "bg-slate-900 border border-white/10 shadow-2xl",
+                  },
+                }}
+              />
+            </div>
           </SignedIn>
         </div>
+
       </div>
-    </div>
+    </nav>
   );
 };
 

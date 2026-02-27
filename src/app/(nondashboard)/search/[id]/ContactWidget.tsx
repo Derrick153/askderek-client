@@ -41,8 +41,8 @@ const ContactWidget = ({
   // Real data from API
   const phoneNumber = property?.manager?.phoneNumber || "0558153803";
   const managerName = property?.manager?.name || "Property Manager";
-  const managerRating = property?.manager?.rating || 4.8;
-  const avgResponseTime = property?.manager?.avgResponseTime || "20min";
+  const managerRating = 4.8;
+  const avgResponseTime = "20min";
 
   /** Handle application - requires auth */
   const handleApplyClick = () => {

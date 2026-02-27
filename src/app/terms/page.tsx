@@ -324,7 +324,7 @@ export default function TermsPage() {
     }
   ];
 
-  const toggleSection = (index) => {
+  const toggleSection = (index: number) => {
     const newOpenSections = new Set(openSections);
     if (newOpenSections.has(index)) {
       newOpenSections.delete(index);

@@ -23,7 +23,7 @@ export default function FAQsPage() {
   const [isLoaded, setIsLoaded] = useState(false);
   
   // Refs for Intersection Observer
-  const questionRefs = useRef([]);
+  const questionRefs = useRef<(HTMLDivElement | null)[]>([]);
   const heroRef = useRef(null);
 
   // FAQ Data Structure
@@ -143,11 +143,11 @@ export default function FAQsPage() {
   // FEATURE 3: VIEW TRACKING FOR PERSONALIZATION
   // Why: Shows which questions you've already read (like "read receipts")
   // Example: Similar to YouTube showing which videos you've watched
-  const trackView = (id) => {
+  const trackView = (id: number) => {
     setViewedQuestions(prev => new Set([...prev, id]));
   };
 
-  const toggleQuestion = (id) => {
+  const toggleQuestion = (id: number) => {
     const newState = openIndex === id ? -1 : id;
     setOpenIndex(newState);
     if (newState !== -1) trackView(id);
@@ -157,7 +157,7 @@ export default function FAQsPage() {
   // Why: Professional users can navigate faster with keyboard
   // Example: Press "/" to search, Escape to clear
   useEffect(() => {
-    const handleKeyPress = (e) => {
+    const handleKeyPress = (e: KeyboardEvent) => {
       if (e.key === '/' && !isSearchFocused) {
         e.preventDefault();
         document.getElementById('faq-search')?.focus();
@@ -321,7 +321,7 @@ export default function FAQsPage() {
                       return (
                         <div 
                           key={id}
-                          ref={el => questionRefs.current[id] = el}
+                          ref={el => { questionRefs.current[id] = el; }}
                           className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden transition-all duration-500 hover:shadow-xl hover:border-orange-200 opacity-0 translate-y-4"
                           style={{ animationDelay: `${index * 50}ms` }}
                         >

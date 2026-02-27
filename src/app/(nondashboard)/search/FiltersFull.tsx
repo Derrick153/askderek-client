@@ -1,10 +1,10 @@
-import { FiltersState, initialState, setFilters } from "@/state";
+import { FiltersState, initialState, setFilters, toggleFiltersFullOpen } from "@/state";
 import { useAppSelector } from "@/state/redux";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useState } from "react";
 import { useDispatch } from "react-redux";
 import { debounce } from "lodash";
-import { cleanParams, cn, formatEnumString } from "@/lib/utils";
+import { cleanParams, cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { X, MapPin, Home, Wifi, Zap, Droplet, Car } from "lucide-react";
@@ -121,7 +121,7 @@ const FiltersFull = () => {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => dispatch({ type: 'global/toggleFiltersFullOpen' })}
+          onClick={() => dispatch(toggleFiltersFullOpen())}
           className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
         >
           <X className="w-5 h-5" />

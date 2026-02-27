@@ -9,7 +9,7 @@ import { usePathname, useRouter } from "next/navigation";
 import React, { useState } from "react";
 import { useDispatch } from "react-redux";
 import { debounce } from "lodash";
-import { cleanParams, cn, formatPriceValue } from "@/lib/utils";
+import { cleanParams, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Filter, Grid, List, Search, MapPin, DollarSign } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PropertyTypeIcons } from "@/lib/constants";
 
 // REAL TARKWA AREAS - These are actual neighborhoods in Tarkwa
 const TARKWA_AREAS = [
@@ -43,7 +42,7 @@ const MAX_PRICES = [500, 700, 1000, 1500, 2000, 3000, 5000];
 const PROPERTY_TYPES = [
   { value: "any", label: "Any Type" },
   { value: "single-room", label: "Single Room" },
-  { value: "chamber-and-hall", label: "Chamber & Hall" },
+  { value: "chamber-hall", label: "Chamber & Hall" },
   { value: "1-bedroom", label: "1 Bedroom" },
   { value: "2-bedroom", label: "2 Bedroom" },
   { value: "3-bedroom", label: "3 Bedroom" },
@@ -226,7 +225,7 @@ const FiltersBar = () => {
               <SelectItem value="1">Single Room</SelectItem>
               <SelectItem value="2">2 Rooms</SelectItem>
               <SelectItem value="3">3 Rooms</SelectItem>
-              <SelectItem value="4">4+ Rooms</SelectItem>
+              <SelectItem value="4+">4+ Rooms</SelectItem>
             </SelectContent>
           </Select>
 
@@ -255,7 +254,7 @@ const FiltersBar = () => {
               placeholder="Search property..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && handleQuickSearch()}
+              onKeyDown={(e) => e.key === "Enter" && handleQuickSearch()}
               className="w-44 border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
             />
             <Button
@@ -355,14 +354,17 @@ const FiltersBar = () => {
 
           <button
             onClick={() => {
-              setSelectedArea("any");
-              dispatch(setFilters({
+              const cleared = {
+                ...filters,
                 area: "any",
-                priceRange: [null, null],
+                priceRange: [null, null] as [null, null],
                 beds: "any",
                 propertyType: "any",
-                location: ""
-              }));
+                location: "",
+              };
+              setSelectedArea("any");
+              dispatch(setFilters(cleared));
+              updateURL(cleared);
             }}
             className="text-sm text-red-600 hover:text-red-800 font-semibold ml-2"
           >
