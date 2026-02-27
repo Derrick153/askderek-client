@@ -1,0 +1,62 @@
+[
+  {
+    "clerkId": "user_carolWhite_01",
+    "name": "Carol White",
+    "email": "carol.white@example.com",
+    "phoneNumber": "+233555666666"
+  },
+  {
+    "clerkId": "user_bobGreen_02",
+    "name": "Bob Green",
+    "email": "bob.green@example.com",
+    "phoneNumber": "+233555333444"
+  },
+  {
+    "clerkId": "user_aliceBrown_03",
+    "name": "Alice Brown",
+    "email": "alice.brown@example.com",
+    "phoneNumber": "+233555111222"
+  },
+  {
+    "clerkId": "user_davidLee_04",
+    "name": "David Lee",
+    "email": "david.lee@example.com",
+    "phoneNumber": "+233555777888"
+  },
+  {
+    "clerkId": "user_emmaTaylor_05",
+    "name": "Emma Taylor",
+    "email": "emma.taylor@example.com",
+    "phoneNumber": "+233555999000"
+  },
+  {
+    "clerkId": "user_frankWilson_06",
+    "name": "Frank Wilson",
+    "email": "frank.wilson@example.com",
+    "phoneNumber": "+233555222333"
+  },
+  {
+    "clerkId": "user_graceMiller_07",
+    "name": "Grace Miller",
+    "email": "grace.miller@example.com",
+    "phoneNumber": "+233555444555"
+  },
+  {
+    "clerkId": "user_henryWilson_08",
+    "name": "Henry Wilson",
+    "email": "henry.wilson@example.com",
+    "phoneNumber": "+233555444556"
+  },
+  {
+    "clerkId": "user_isabellaGarcia_09",
+    "name": "Isabella Garcia",
+    "email": "isabella.garcia@example.com",
+    "phoneNumber": "+233555666777"
+  },
+  {
+    "clerkId": "user_jackThompson_10",
+    "name": "Jack Thompson",
+    "email": "jack.thompson@example.com",
+    "phoneNumber": "+233555888999"
+  }
+]

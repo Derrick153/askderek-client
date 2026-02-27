@@ -1,0 +1,58 @@
+[
+  {
+    "amountDue": 1500,
+    "amountPaid": 1500,
+    "dueDate": "2025-12-01T00:00:00Z",
+    "paymentDate": "2025-11-28T10:30:00Z",
+    "paymentStatus": "Paid",
+    "leaseId": 1
+  },
+  {
+    "amountDue": 1800,
+    "amountPaid": 1800,
+    "dueDate": "2026-01-01T00:00:00Z",
+    "paymentDate": "2025-12-30T14:20:00Z",
+    "paymentStatus": "Paid",
+    "leaseId": 2
+  },
+  {
+    "amountDue": 2200,
+    "amountPaid": 2200,
+    "dueDate": "2025-11-01T00:00:00Z",
+    "paymentDate": "2025-10-28T09:15:00Z",
+    "paymentStatus": "Paid",
+    "leaseId": 3
+  },
+  {
+    "amountDue": 1700,
+    "amountPaid": 850,
+    "dueDate": "2025-10-15T00:00:00Z",
+    "paymentDate": "2025-10-15T11:00:00Z",
+    "paymentStatus": "PartiallyPaid",
+    "leaseId": 4
+  },
+  {
+    "amountDue": 2000,
+    "amountPaid": 0,
+    "dueDate": "2026-01-15T00:00:00Z",
+    "paymentDate": "2026-01-15T00:00:00Z",
+    "paymentStatus": "Pending",
+    "leaseId": 5
+  },
+  {
+    "amountDue": 1500,
+    "amountPaid": 0,
+    "dueDate": "2026-02-01T00:00:00Z",
+    "paymentDate": "2026-02-01T00:00:00Z",
+    "paymentStatus": "Pending",
+    "leaseId": 1
+  },
+  {
+    "amountDue": 1700,
+    "amountPaid": 0,
+    "dueDate": "2026-01-28T00:00:00Z",
+    "paymentDate": "2026-01-28T00:00:00Z",
+    "paymentStatus": "Overdue",
+    "leaseId": 4
+  }
+]
