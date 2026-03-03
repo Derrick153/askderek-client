@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc:*)",
+      "Bash(npm run build:*)",
+      "Bash(git add:*)",
+      "Bash(xxd:*)",
+      "Bash(printf:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)"
+    ]
+  }
+}

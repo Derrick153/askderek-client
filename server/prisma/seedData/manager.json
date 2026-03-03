@@ -1,0 +1,62 @@
+[
+  {
+    "clerkId": "user_2pQKm8xNvYzJ9Rh3WkLqB5TcDfG",
+    "name": "Kwame Mensah - Regional Manager",
+    "email": "kwame.mensah@askderek.com",
+    "phoneNumber": "+233241234567"
+  },
+  {
+    "clerkId": "user_2pQKm8yPwXzK0Si4XlMrC6UeDhH",
+    "name": "Ama Serwaa - New Atuabo & Tamso",
+    "email": "ama.serwaa@askderek.com",
+    "phoneNumber": "+233202345678"
+  },
+  {
+    "clerkId": "user_2pQKm8zQxYzL1Tj5YmNsD7VfEiI",
+    "name": "Kojo Asante - UMaT Campus",
+    "email": "kojo.asante@askderek.com",
+    "phoneNumber": "+233551234890"
+  },
+  {
+    "clerkId": "user_2pQKm90RyZzM2Uk6ZnOtE8WgFjJ",
+    "name": "Abena Darko - Kwabedu & Low Cost",
+    "email": "abena.darko@askderek.com",
+    "phoneNumber": "+233247890123"
+  },
+  {
+    "clerkId": "user_2pQKm91SzAzN3Vl7AoPuF9XhGkK",
+    "name": "Yaw Boateng - Brahabebom & Nsuta",
+    "email": "yaw.boateng@askderek.com",
+    "phoneNumber": "+233501234678"
+  },
+  {
+    "clerkId": "user_2pQKm92TzBzO4Wm8BpQvG0YiHlL",
+    "name": "Nana Kofi - Bonsa & Aboso",
+    "email": "nana.kofi@askderek.com",
+    "phoneNumber": "+233271234567"
+  },
+  {
+    "clerkId": "user_2pQKm93UzCzP5Xn9CqRwH1ZjImM",
+    "name": "Afiya Sule - Cyanide & Bonsawire",
+    "email": "afiya.sule@askderek.com",
+    "phoneNumber": "+233541234890"
+  },
+  {
+    "clerkId": "user_2pQKm94VzDzQ6Yo0DrSxI2AkJnN",
+    "name": "Ibrahim Yussif - South Tarkwa",
+    "email": "ibrahim.yussif@askderek.com",
+    "phoneNumber": "+233551987654"
+  },
+  {
+    "clerkId": "user_2pQKm95WzEzR7Zp1EsTyJ3BlKoO",
+    "name": "Samuel Annan - Maintenance",
+    "email": "samuel.annan@askderek.com",
+    "phoneNumber": "+233249876543"
+  },
+  {
+    "clerkId": "user_2pQKm96XzFzS8Aq2FtUzK4CmLpP",
+    "name": "Esther Gyamfi - Tenant Relations",
+    "email": "esther.gyamfi@askderek.com",
+    "phoneNumber": "+233208765432"
+  }
+]
