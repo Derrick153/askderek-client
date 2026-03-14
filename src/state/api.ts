@@ -23,7 +23,17 @@ export const api = createApi({
   reducerPath: "api",
   baseQuery: fetchBaseQuery({
     baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
-    prepareHeaders: async (headers) => headers,
+    prepareHeaders: async (headers) => {
+  try {
+    const token = await (window as any).Clerk?.session?.getToken();
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+  } catch (e) {
+    console.error("Failed to get Clerk token:", e);
+  }
+  return headers;
+},
   }),
   tagTypes: [
     "Managers",
