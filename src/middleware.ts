@@ -1,9 +1,16 @@
 ﻿import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-const isProtectedRoute = createRouteMatcher(["/dashboard(.*)", "/tenants(.*)", "/managers(.*)"]);
+const isProtectedRoute = createRouteMatcher([
+  "/dashboard(.*)",
+  "/tenants(.*)",
+  "/managers(.*)",
+  "/admin(.*)",
+]);
+
 const isTenantRoute = createRouteMatcher(["/tenants(.*)"]);
 const isManagerRoute = createRouteMatcher(["/managers(.*)"]);
+const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
 
 export default clerkMiddleware(async (auth, req) => {
   const { userId, sessionClaims } = await auth();
@@ -14,21 +21,38 @@ export default clerkMiddleware(async (auth, req) => {
   }
 
   if (userId) {
+    // ✅ Read from session token custom claim
     const userType =
-      (sessionClaims?.unsafeMetadata as any)?.userType ||
-      (sessionClaims?.publicMetadata as any)?.userType;
+      (sessionClaims as any)?.userType ||
+      (sessionClaims?.publicMetadata as any)?.userType ||
+      (sessionClaims?.unsafeMetadata as any)?.userType;
 
+    // ── DASHBOARD REDIRECT ────────────────────────────────
     if (req.nextUrl.pathname === "/dashboard") {
+      if (userType === "admin") return NextResponse.redirect(new URL("/admin/dashboard", req.url));
       if (userType === "manager") return NextResponse.redirect(new URL("/managers/properties", req.url));
       if (userType === "tenant") return NextResponse.redirect(new URL("/tenants/favorites", req.url));
       return NextResponse.redirect(new URL("/select-role", req.url));
     }
 
+    // ── ADMIN PROTECTION ──────────────────────────────────
+    if (isAdminRoute(req) && userType !== "admin") {
+      if (userType === "manager") return NextResponse.redirect(new URL("/managers/properties", req.url));
+      if (userType === "tenant") return NextResponse.redirect(new URL("/tenants/favorites", req.url));
+      return NextResponse.redirect(new URL("/select-role", req.url));
+    }
+
+    // ── CROSS ROLE PROTECTION ─────────────────────────────
     if (isManagerRoute(req) && userType === "tenant") return NextResponse.redirect(new URL("/tenants/favorites", req.url));
     if (isTenantRoute(req) && userType === "manager") return NextResponse.redirect(new URL("/managers/properties", req.url));
+    if (isTenantRoute(req) && userType === "admin") return NextResponse.redirect(new URL("/admin/dashboard", req.url));
+    if (isManagerRoute(req) && userType === "admin") return NextResponse.redirect(new URL("/admin/dashboard", req.url));
   }
 });
 
 export const config = {
-  matcher: ["/((?!_next|.*\\.(?:html?|css|js(?!on)|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf)).*)","/(api|trpc)(.*)"],
+  matcher: [
+    "/((?!_next|.*\\.(?:html?|css|js(?!on)|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf)).*)",
+    "/(api|trpc)(.*)",
+  ],
 };

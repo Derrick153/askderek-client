@@ -16,7 +16,7 @@ export interface ClerkUser {
   email: string;
   name: string;
   phoneNumber?: string;
-  userType: "tenant" | "manager";
+  userType: "tenant" | "manager" | "admin";
 }
 
 export const api = createApi({
@@ -24,16 +24,16 @@ export const api = createApi({
   baseQuery: fetchBaseQuery({
     baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
     prepareHeaders: async (headers) => {
-  try {
-    const token = await (window as any).Clerk?.session?.getToken();
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-    }
-  } catch (e) {
-    console.error("Failed to get Clerk token:", e);
-  }
-  return headers;
-},
+      try {
+        const token = await (window as any).Clerk?.session?.getToken();
+        if (token) {
+          headers.set("Authorization", `Bearer ${token}`);
+        }
+      } catch (e) {
+        console.error("Failed to get Clerk token:", e);
+      }
+      return headers;
+    },
   }),
   tagTypes: [
     "Managers",
@@ -48,6 +48,7 @@ export const api = createApi({
     "Blacklist",
     "Reports",
     "AuditLogs",
+    "Auth",
   ],
   endpoints: (build) => ({
 
@@ -59,7 +60,8 @@ export const api = createApi({
           if (!clerkUser) return { data: null };
 
           const userType =
-            (clerkUser.publicMetadata?.userType as "tenant" | "manager") ||
+            (clerkUser.unsafeMetadata?.userType as "tenant" | "manager" | "admin") ||
+            (clerkUser.publicMetadata?.userType as "tenant" | "manager" | "admin") ||
             "tenant";
 
           const user: ClerkUser = {
@@ -74,6 +76,64 @@ export const api = createApi({
         } catch (error: any) {
           return { error: error?.message || "Could not fetch user data" };
         }
+      },
+    }),
+
+    registerUser: build.mutation<
+      { id: number; clerkId: string; name: string; email: string; role: string },
+      { clerkId: string; name: string; email: string; phoneNumber?: string; role: string }
+    >({
+      query: (body) => ({ url: "auth/register", method: "POST", body }),
+      invalidatesTags: ["Auth"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, {
+          success: "Registration successful!",
+          error: "Failed to register user.",
+        });
+      },
+    }),
+
+    getMe: build.query<
+      {
+        id: number;
+        clerkId: string;
+        name: string;
+        email: string;
+        role: string;
+        isActive: boolean;
+        manager?: {
+          id: number;
+          clerkId: string;
+          userId: number;
+          isVerified: boolean;
+        } | null;
+        tenant?: {
+          id: number;
+          clerkId: string;
+          userId: number;
+          phoneNumber: string | null;
+        } | null;
+      },
+      void
+    >({
+      query: () => "auth/me",
+      providesTags: ["Auth"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { error: "Failed to fetch user profile." });
+      },
+    }),
+
+    updateMe: build.mutation<
+      any,
+      { name?: string; email?: string; phoneNumber?: string }
+    >({
+      query: (body) => ({ url: "auth/me", method: "PUT", body }),
+      invalidatesTags: ["Auth"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, {
+          success: "Profile updated successfully!",
+          error: "Failed to update profile.",
+        });
       },
     }),
 
@@ -190,7 +250,10 @@ export const api = createApi({
         { type: "Properties", id: "LIST" },
       ],
       async onQueryStarted(_, { queryFulfilled }) {
-        await withToast(queryFulfilled, { success: "Added to favorites!", error: "Failed to add to favorites." });
+        await withToast(queryFulfilled, {
+          success: "Added to favorites!",
+          error: "Failed to add to favorites.",
+        });
       },
     }),
 
@@ -207,7 +270,10 @@ export const api = createApi({
         { type: "Properties", id: "LIST" },
       ],
       async onQueryStarted(_, { queryFulfilled }) {
-        await withToast(queryFulfilled, { success: "Removed from favorites!", error: "Failed to remove from favorites." });
+        await withToast(queryFulfilled, {
+          success: "Removed from favorites!",
+          error: "Failed to remove from favorites.",
+        });
       },
     }),
 
@@ -237,7 +303,10 @@ export const api = createApi({
       }),
       invalidatesTags: (result) => [{ type: "Managers", id: result?.id }],
       async onQueryStarted(_, { queryFulfilled }) {
-        await withToast(queryFulfilled, { success: "Settings updated successfully!", error: "Failed to update settings." });
+        await withToast(queryFulfilled, {
+          success: "Settings updated successfully!",
+          error: "Failed to update settings.",
+        });
       },
     }),
 
@@ -285,7 +354,10 @@ export const api = createApi({
       query: (reference) => `payments/verify/${reference}`,
       providesTags: ["Payments"],
       async onQueryStarted(_, { queryFulfilled }) {
-        await withToast(queryFulfilled, { success: "Payment verified successfully!", error: "Failed to verify payment." });
+        await withToast(queryFulfilled, {
+          success: "Payment verified successfully!",
+          error: "Failed to verify payment.",
+        });
       },
     }),
 
@@ -310,10 +382,17 @@ export const api = createApi({
       Application & { lease?: Lease },
       { id: number; status: string }
     >({
-      query: ({ id, status }) => ({ url: `applications/${id}/status`, method: "PUT", body: { status } }),
+      query: ({ id, status }) => ({
+        url: `applications/${id}/status`,
+        method: "PUT",
+        body: { status },
+      }),
       invalidatesTags: ["Applications", "Leases", "Properties"],
       async onQueryStarted(_, { queryFulfilled }) {
-        await withToast(queryFulfilled, { success: "Application updated successfully!", error: "Failed to update application." });
+        await withToast(queryFulfilled, {
+          success: "Application updated successfully!",
+          error: "Failed to update application.",
+        });
       },
     }),
 
@@ -321,12 +400,18 @@ export const api = createApi({
       query: (body) => ({ url: "applications", method: "POST", body }),
       invalidatesTags: ["Applications"],
       async onQueryStarted(_, { queryFulfilled }) {
-        await withToast(queryFulfilled, { success: "Application submitted successfully!", error: "Failed to submit application." });
+        await withToast(queryFulfilled, {
+          success: "Application submitted successfully!",
+          error: "Failed to submit application.",
+        });
       },
     }),
 
     // ── ADMIN ──────────────────────────────────────────────
-    createAdmin: build.mutation<any, { clerkId: string; name: string; email: string }>({
+    createAdmin: build.mutation<
+      any,
+      { clerkId: string; name: string; email: string }
+    >({
       query: (body) => ({ url: "admin", method: "POST", body }),
       invalidatesTags: ["Admin"],
     }),
@@ -358,7 +443,11 @@ export const api = createApi({
     }),
 
     rejectProperty: build.mutation<any, { id: number; reason: string }>({
-      query: ({ id, reason }) => ({ url: `admin/properties/${id}/reject`, method: "PUT", body: { reason } }),
+      query: ({ id, reason }) => ({
+        url: `admin/properties/${id}/reject`,
+        method: "PUT",
+        body: { reason },
+      }),
       invalidatesTags: ["Properties"],
     }),
 
@@ -374,7 +463,11 @@ export const api = createApi({
     }),
 
     rejectVerification: build.mutation<any, { id: number; reason: string }>({
-      query: ({ id, reason }) => ({ url: `admin/verifications/${id}/reject`, method: "PUT", body: { reason } }),
+      query: ({ id, reason }) => ({
+        url: `admin/verifications/${id}/reject`,
+        method: "PUT",
+        body: { reason },
+      }),
       invalidatesTags: ["Verifications"],
     }),
 
@@ -395,7 +488,10 @@ export const api = createApi({
       providesTags: ["Blacklist"],
     }),
 
-    addToBlacklist: build.mutation<any, { phoneNumber?: string; email?: string; ghanaCardId?: string; reason: string }>({
+    addToBlacklist: build.mutation<
+      any,
+      { phoneNumber?: string; email?: string; ghanaCardId?: string; reason: string }
+    >({
       query: (body) => ({ url: "admin/blacklist", method: "POST", body }),
       invalidatesTags: ["Blacklist"],
     }),
@@ -425,25 +521,35 @@ export const api = createApi({
 });
 
 export const {
+  // Auth
   useGetAuthUserQuery,
+  useRegisterUserMutation,
+  useGetMeQuery,
+  useUpdateMeMutation,
+  // Properties
   useGetPropertiesQuery,
   useGetPropertyQuery,
   useCreatePropertyMutation,
+  // Tenants
   useGetTenantQuery,
   useGetCurrentResidencesQuery,
   useUpdateTenantSettingsMutation,
   useAddFavoritePropertyMutation,
   useRemoveFavoritePropertyMutation,
+  // Managers
   useGetManagerPropertiesQuery,
   useUpdateManagerSettingsMutation,
+  // Leases & Payments
   useGetLeasesQuery,
   useGetPropertyLeasesQuery,
   useGetPaymentsQuery,
   useInitializePaymentMutation,
   useVerifyPaymentQuery,
+  // Applications
   useGetApplicationsQuery,
   useUpdateApplicationStatusMutation,
   useCreateApplicationMutation,
+  // Admin
   useCreateAdminMutation,
   useGetAdminQuery,
   useGetDashboardStatsQuery,

@@ -19,10 +19,10 @@ const SingleListing = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
           <div className="w-10 h-10 border-2 border-orange-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-zinc-500 text-sm">Loading property...</p>
+          <p className="text-gray-400 text-sm">Loading property...</p>
         </div>
       </div>
     );
@@ -33,7 +33,7 @@ const SingleListing = () => {
     : ["/placeholder-property.jpg"];
 
   return (
-    <div className="min-h-screen bg-zinc-950">
+    <div className="min-h-screen bg-white">
       <ImagePreviews images={photos} />
       <div className="flex flex-col md:flex-row justify-center gap-10 mx-4 md:w-2/3 md:mx-auto mt-10 mb-16">
         <div className="order-2 md:order-1 flex-1">
