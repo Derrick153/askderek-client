@@ -16,6 +16,7 @@ import {
   Home,
   Menu,
   Settings,
+  Shield,
   X,
 } from "lucide-react";
 import { NAVBAR_HEIGHT } from "@/lib/constants";
@@ -25,7 +26,7 @@ import { useGetApplicationsQuery } from "@/state/api";
 import { useUser } from "@clerk/nextjs";
 
 interface AppSidebarProps {
-  userType: "tenant" | "manager";
+  userType: "tenant" | "manager" | "admin";
 }
 
 const AppSidebar = ({ userType }: AppSidebarProps) => {
@@ -52,14 +53,17 @@ const AppSidebar = ({ userType }: AppSidebarProps) => {
             href: "/managers/applications",
             badge: pendingCount > 0 ? pendingCount : undefined,
           },
+          { icon: Shield, label: "Get Verified", href: "/managers/verification" },
           { icon: Settings, label: "Settings", href: "/managers/settings" },
         ]
-      : [
+      : userType === "tenant"
+      ? [
           { icon: Heart, label: "Favorites", href: "/tenants/favorites" },
           { icon: FileText, label: "Applications", href: "/tenants/applications" },
           { icon: Home, label: "Residences", href: "/tenants/residences" },
           { icon: Settings, label: "Settings", href: "/tenants/settings" },
-        ];
+        ]
+      : [];
 
   return (
     <Sidebar
@@ -84,10 +88,10 @@ const AppSidebar = ({ userType }: AppSidebarProps) => {
                 <>
                   <div>
                     <p className="text-[9px] font-black text-orange-500 tracking-[0.3em] uppercase">
-                      {userType === "manager" ? "Manager" : "Tenant"}
+                      {userType === "manager" ? "Manager" : userType === "tenant" ? "Tenant" : "Admin"}
                     </p>
                     <h1 className="text-sm font-black text-white">
-                      {userType === "manager" ? "Property Portal" : "My Rentals"}
+                      {userType === "manager" ? "Property Portal" : userType === "tenant" ? "My Rentals" : "Dashboard"}
                     </h1>
                   </div>
                   <button
