@@ -13,6 +13,7 @@ import {
   useUser,
 } from "@clerk/nextjs";
 import { SidebarTrigger } from "./ui/sidebar";
+import { MapPin } from "lucide-react";
 
 /* ─────────────────────────────────────────────
    AD LOGO
@@ -59,7 +60,7 @@ const ADLogo = () => (
 ───────────────────────────────────────────── */
 const MESSAGES = [
   "Akwaban — Welcome to AskDerek",
-  "Your Home in Tarkwa Starts Here",
+  "Verified Rentals Across All 16 Regions",   // ✅ was "Your Home in Tarkwa Starts Here"
   "Real Homes. Real Owners. Real Ghana.",
   "Find Your Place. No Stress. No Scams.",
 ];
@@ -101,7 +102,7 @@ const RollingTicker = () => {
 ───────────────────────────────────────────── */
 const Navbar = () => {
   const pathname = usePathname();
-  const router = useRouter();
+  const router   = useRouter();
   const { user } = useUser();
 
   const isDashboard =
@@ -119,7 +120,7 @@ const Navbar = () => {
     >
       <div className="h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 flex items-center justify-between gap-4">
 
-        {/* LEFT */}
+        {/* ── LEFT ──────────────────────────────────────── */}
         <div className="flex items-center gap-3 flex-shrink-0">
           {isDashboard && (
             <div className="md:hidden border-r border-white/10 pr-3">
@@ -141,12 +142,23 @@ const Navbar = () => {
               </span>
             </div>
           </Link>
+
+          {/* ✅ Regions link — only on public pages, hidden on dashboard */}
+          {!isDashboard && (
+            <Link
+              href="/regions"
+              className="hidden sm:flex items-center gap-1.5 ml-2 text-[11px] font-black text-slate-400 hover:text-orange-400 uppercase tracking-widest transition-colors duration-150"
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              Regions
+            </Link>
+          )}
         </div>
 
-        {/* CENTER */}
+        {/* ── CENTER ────────────────────────────────────── */}
         {!isDashboard && <RollingTicker />}
 
-        {/* RIGHT */}
+        {/* ── RIGHT ─────────────────────────────────────── */}
         <div className="flex items-center gap-3 flex-shrink-0">
           <SignedOut>
             <SignInButton mode="modal">

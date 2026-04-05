@@ -111,7 +111,7 @@ const CallToActionSection = () => {
               transition={{ delay: 0.4 }}
               className="text-lg text-gray-300 mb-6 leading-relaxed max-w-xl"
             >
-              Join hundreds of people in Tarkwa who found their perfect homes without agent stress. Verified listings, real photos, transparent prices.
+              Join hundreds of people across Ghana who found their perfect homes without agent stress. Verified listings, real photos, transparent prices.
             </motion.p>
 
             {/* Trust Badges */}

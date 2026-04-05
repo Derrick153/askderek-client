@@ -1,3 +1,5 @@
+"use client";
+
 import { FiltersState, initialState, setFilters, toggleFiltersFullOpen } from "@/state";
 import { useAppSelector } from "@/state/redux";
 import { usePathname, useRouter } from "next/navigation";
@@ -7,8 +9,10 @@ import { debounce } from "lodash";
 import { cleanParams, cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { X, MapPin, Home, Wifi, Zap, Droplet, Car } from "lucide-react";
+import { X, MapPin, Home, Wifi, Zap, Droplet, Car, Shield } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
+import { getAllRegions, getCitiesByRegion, getAreasByCity } from "@/lib/ghanaLocations";
 import {
   Select,
   SelectContent,
@@ -16,68 +20,59 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
 
-// COMPLETE REAL TARKWA COMMUNITIES - ALL 20! ✅
-const TARKWA_COMMUNITIES = [
-  "New Atuabo",
-  "Tamso",
-  "Cyanide",
-  "UMaT Hostels",
-  "Kwabedu",
-  "Low Cost",
-  "Brahabebom",
-  "Nsuta",
-  "Bonsa",
-  "Aboso",
-  "Bonsawire",
-  "Kyekyewere",
-  "Efuanta",
-  "Akoon",
-  "Bankyim",
-  "Nzema Line",
-  "Zongo",
-  "Tarkwa & Aboso",
-  "Government Hill",
-  "Teberebe",
-];
-
-// REAL GHANA PROPERTY TYPES
+// ── PROPERTY TYPES ────────────────────────────────────────
 const PROPERTY_TYPES = [
-  { value: "single-room", label: "Single Room" },
-  { value: "chamber-hall", label: "Chamber & Hall" },
-  { value: "1-bedroom", label: "1 Bedroom" },
-  { value: "2-bedroom", label: "2 Bedroom" },
-  { value: "3-bedroom", label: "3 Bedroom" },
-  { value: "self-contain", label: "Self Contain" },
-  { value: "apartment", label: "Apartment" },
-  { value: "house", label: "House" }
+  { value: "Rooms",         label: "Single Room"    },
+  { value: "Chamber",       label: "Chamber & Hall" },
+  { value: "SelfContained", label: "Self-Contained" },
+  { value: "Apartment",     label: "Apartment"      },
+  { value: "CompoundHouse", label: "Compound House" },
+  { value: "Office",        label: "Office Space"   },
+  { value: "Shop",          label: "Shop / Store"   },
 ];
 
-// REAL GHANA AMENITIES (What actually matters in Tarkwa)
+// ── AMENITIES ─────────────────────────────────────────────
 const AMENITIES = [
-  { id: "water", label: "Water Supply", icon: Droplet },
-  { id: "electricity", label: "Electricity", icon: Zap },
-  { id: "internet", label: "Internet Ready", icon: Wifi },
-  { id: "parking", label: "Parking Space", icon: Car },
-  { id: "furnished", label: "Furnished", icon: Home },
-  { id: "security", label: "Security", icon: Home }
+  { id: "WiFi",           label: "WiFi",          icon: Wifi    },
+  { id: "Generator",      label: "Generator",     icon: Zap     },
+  { id: "WaterTank",      label: "Water Tank",    icon: Droplet },
+  { id: "Parking",        label: "Parking",       icon: Car     },
+  { id: "Furnished",      label: "Furnished",     icon: Home    },
+  { id: "SecurityGuard",  label: "Security",      icon: Shield  },
 ];
 
+// ─────────────────────────────────────────────────────────
 const FiltersFull = () => {
-  const dispatch = useDispatch();
-  const router = useRouter();
-  const pathname = usePathname();
-  const filters = useAppSelector((state) => state.global.filters);
-  const [localFilters, setLocalFilters] = useState(initialState.filters);
-  const isFiltersFullOpen = useAppSelector(
-    (state) => state.global.isFiltersFullOpen
-  );
+  const dispatch  = useDispatch();
+  const router    = useRouter();
+  const pathname  = usePathname();
+  const filters   = useAppSelector((state) => state.global.filters);
+  const isFiltersFullOpen = useAppSelector((state) => state.global.isFiltersFullOpen);
 
+  const [localFilters, setLocalFilters] = useState(initialState.filters);
+
+  // ── Location data ─────────────────────────────────────────
+  const regions = getAllRegions();
+
+  const cities = localFilters.regionSlug
+    ? (() => {
+        try { return getCitiesByRegion(localFilters.regionSlug).cities; }
+        catch { return []; }
+      })()
+    : [];
+
+  const areas = localFilters.regionSlug && localFilters.citySlug
+    ? (() => {
+        try { return getAreasByCity(localFilters.regionSlug, localFilters.citySlug).areas; }
+        catch { return []; }
+      })()
+    : [];
+
+  // ── URL sync ──────────────────────────────────────────────
   const updateURL = debounce((newFilters: FiltersState) => {
     const cleanFilters = cleanParams(newFilters);
     const updatedSearchParams = new URLSearchParams();
-
     Object.entries(cleanFilters).forEach(([key, value]) => {
       if (value !== null && value !== undefined && value !== "any") {
         updatedSearchParams.set(
@@ -86,9 +81,53 @@ const FiltersFull = () => {
         );
       }
     });
-
     router.push(`${pathname}?${updatedSearchParams.toString()}`);
   }, 300);
+
+  // ── Region change — reset city and area ───────────────────
+  const handleRegionChange = (regionSlug: string) => {
+    const region = regions.find((r) => r.slug === regionSlug);
+    setLocalFilters((prev) => ({
+      ...prev,
+      region:     regionSlug === "any" ? null : region?.name ?? null,
+      regionSlug: regionSlug === "any" ? null : regionSlug,
+      city:       null,
+      citySlug:   null,
+      area:       null,
+      areaSlug:   null,
+    }));
+  };
+
+  // ── City change — reset area ──────────────────────────────
+  const handleCityChange = (citySlug: string) => {
+    const city = cities.find((c) => c.slug === citySlug);
+    setLocalFilters((prev) => ({
+      ...prev,
+      city:     citySlug === "any" ? null : city?.name ?? null,
+      citySlug: citySlug === "any" ? null : citySlug,
+      area:     null,
+      areaSlug: null,
+    }));
+  };
+
+  // ── Area change ───────────────────────────────────────────
+  const handleAreaChange = (areaSlug: string) => {
+    const area = areas.find((a) => a.slug === areaSlug);
+    setLocalFilters((prev) => ({
+      ...prev,
+      area:     areaSlug === "any" ? null : area?.name ?? null,
+      areaSlug: areaSlug === "any" ? null : areaSlug,
+    }));
+  };
+
+  const handleAmenityToggle = (amenityId: string) => {
+    setLocalFilters((prev) => ({
+      ...prev,
+      amenities: prev.amenities?.includes(amenityId)
+        ? prev.amenities.filter((a) => a !== amenityId)
+        : [...(prev.amenities || []), amenityId],
+    }));
+  };
 
   const handleSubmit = () => {
     dispatch(setFilters(localFilters));
@@ -101,20 +140,11 @@ const FiltersFull = () => {
     updateURL(initialState.filters);
   };
 
-  const handleAmenityToggle = (amenityId: string) => {
-    setLocalFilters((prev) => ({
-      ...prev,
-      amenities: prev.amenities?.includes(amenityId)
-        ? prev.amenities.filter((a) => a !== amenityId)
-        : [...(prev.amenities || []), amenityId],
-    }));
-  };
-
   if (!isFiltersFullOpen) return null;
 
   return (
     <div className="bg-white rounded-2xl shadow-2xl max-w-2xl mx-auto overflow-hidden flex flex-col border-2 border-orange-200">
-      
+
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-orange-50 to-amber-50">
         <h2 className="text-xl font-black text-gray-900">All Filters</h2>
@@ -130,40 +160,84 @@ const FiltersFull = () => {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8 max-h-[70vh]">
-        
-        {/* Community Selection - ALL 20 REAL TARKWA AREAS! */}
+
+        {/* ── LOCATION ───────────────────────────────────── */}
         <div className="space-y-3">
           <Label className="text-sm font-bold text-gray-900 flex items-center gap-2">
             <MapPin className="w-4 h-4 text-orange-600" />
-            Community in Tarkwa
+            Location
           </Label>
+
+          {/* Region */}
           <Select
-            value={localFilters.area || "any"}
-            onValueChange={(value) =>
-              setLocalFilters((prev) => ({ ...prev, area: value }))
-            }
+            value={localFilters.regionSlug || "any"}
+            onValueChange={handleRegionChange}
           >
             <SelectTrigger className="rounded-xl border-2 border-gray-300 h-12 font-semibold">
-              <SelectValue placeholder="Select community" />
+              <SelectValue placeholder="Select a region" />
             </SelectTrigger>
             <SelectContent className="bg-white max-h-[300px]">
-              <SelectItem value="any">All Communities</SelectItem>
-              {TARKWA_COMMUNITIES.map((community) => (
-                <SelectItem 
-                  key={community} 
-                  value={community.toLowerCase().replace(/\s+/g, '-').replace(/&/g, 'and')}
-                >
-                  {community}
+              <SelectItem value="any">All Regions</SelectItem>
+              {regions.map((r) => (
+                <SelectItem key={r.slug} value={r.slug}>
+                  {r.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <p className="text-xs text-gray-500 mt-1">
-            📍 All 20 major communities in Tarkwa
-          </p>
+
+          {/* City — only show when region is selected */}
+          {localFilters.regionSlug && cities.length > 0 && (
+            <Select
+              value={localFilters.citySlug || "any"}
+              onValueChange={handleCityChange}
+            >
+              <SelectTrigger className="rounded-xl border-2 border-gray-300 h-12 font-semibold">
+                <SelectValue placeholder="Select a city" />
+              </SelectTrigger>
+              <SelectContent className="bg-white max-h-[300px]">
+                <SelectItem value="any">All Cities</SelectItem>
+                {cities.map((c) => (
+                  <SelectItem key={c.slug} value={c.slug}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {/* Area — only show when city is selected */}
+          {localFilters.citySlug && areas.length > 0 && (
+            <Select
+              value={localFilters.areaSlug || "any"}
+              onValueChange={handleAreaChange}
+            >
+              <SelectTrigger className="rounded-xl border-2 border-gray-300 h-12 font-semibold">
+                <SelectValue placeholder="Select an area" />
+              </SelectTrigger>
+              <SelectContent className="bg-white max-h-[300px]">
+                <SelectItem value="any">All Areas</SelectItem>
+                {areas.map((a) => (
+                  <SelectItem key={a.slug} value={a.slug}>
+                    {a.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {/* Location summary */}
+          {localFilters.region && (
+            <p className="text-xs text-orange-700 font-semibold flex items-center gap-1">
+              <MapPin className="w-3 h-3" />
+              {[localFilters.area, localFilters.city, localFilters.region]
+                .filter(Boolean)
+                .join(", ")}
+            </p>
+          )}
         </div>
 
-        {/* Property Type - GHANA SPECIFIC */}
+        {/* ── PROPERTY TYPE ──────────────────────────────── */}
         <div className="space-y-3">
           <Label className="text-sm font-bold text-gray-900 flex items-center gap-2">
             <Home className="w-4 h-4 text-orange-600" />
@@ -180,10 +254,7 @@ const FiltersFull = () => {
                     : "border-gray-200 hover:border-orange-300 hover:bg-orange-50/30 text-gray-700"
                 )}
                 onClick={() =>
-                  setLocalFilters((prev) => ({
-                    ...prev,
-                    propertyType: type.value,
-                  }))
+                  setLocalFilters((prev) => ({ ...prev, propertyType: type.value }))
                 }
               >
                 <span className="text-sm">{type.label}</span>
@@ -192,7 +263,7 @@ const FiltersFull = () => {
           </div>
         </div>
 
-        {/* Price Range - REAL GHANA CEDIS */}
+        {/* ── PRICE RANGE ────────────────────────────────── */}
         <div className="space-y-4">
           <Label className="text-sm font-bold text-gray-900">
             Monthly Rent (GH₵)
@@ -230,11 +301,11 @@ const FiltersFull = () => {
           </div>
         </div>
 
-        {/* Number of Rooms - Simple for Ghana */}
+        {/* ── ROOMS ──────────────────────────────────────── */}
         <div className="space-y-3">
           <Label className="text-sm font-bold text-gray-900">Number of Rooms</Label>
           <div className="grid grid-cols-4 gap-2">
-            {["1", "2", "3", "4+"].map((num) => (
+            {["1", "2", "3", "4"].map((num) => (
               <button
                 key={num}
                 className={cn(
@@ -247,13 +318,13 @@ const FiltersFull = () => {
                   setLocalFilters((prev) => ({ ...prev, beds: num }))
                 }
               >
-                {num}
+                {num === "4" ? "4+" : num}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Bathrooms - Keep it Simple */}
+        {/* ── BATHROOMS ──────────────────────────────────── */}
         <div className="space-y-3">
           <Label className="text-sm font-bold text-gray-900">Bathrooms</Label>
           <div className="grid grid-cols-4 gap-2">
@@ -276,9 +347,9 @@ const FiltersFull = () => {
           </div>
         </div>
 
-        {/* Amenities - WHAT ACTUALLY MATTERS IN GHANA */}
+        {/* ── AMENITIES ──────────────────────────────────── */}
         <div className="space-y-3">
-          <Label className="text-sm font-bold text-gray-900">Important Amenities</Label>
+          <Label className="text-sm font-bold text-gray-900">Amenities</Label>
           <div className="grid grid-cols-2 gap-3">
             {AMENITIES.map((amenity) => {
               const Icon = amenity.icon;
@@ -301,16 +372,12 @@ const FiltersFull = () => {
           </div>
         </div>
 
-        {/* Available From Date */}
+        {/* ── AVAILABLE FROM ─────────────────────────────── */}
         <div className="space-y-3">
           <Label className="text-sm font-bold text-gray-900">Available From</Label>
           <Input
             type="date"
-            value={
-              localFilters.availableFrom !== "any"
-                ? localFilters.availableFrom
-                : ""
-            }
+            value={localFilters.availableFrom !== "any" ? localFilters.availableFrom : ""}
             onChange={(e) =>
               setLocalFilters((prev) => ({
                 ...prev,
@@ -324,17 +391,16 @@ const FiltersFull = () => {
           </p>
         </div>
 
-        {/* Specific Search (Optional) */}
+        {/* ── KEYWORD SEARCH ─────────────────────────────── */}
         <div className="space-y-3">
-          <Label className="text-sm font-bold text-gray-900">Search Keywords (Optional)</Label>
+          <Label className="text-sm font-bold text-gray-900">
+            Search Keywords (Optional)
+          </Label>
           <Input
-            placeholder="e.g., near school, quiet area, gated..."
+            placeholder="e.g. near school, quiet area, gated..."
             value={localFilters.location || ""}
             onChange={(e) =>
-              setLocalFilters((prev) => ({
-                ...prev,
-                location: e.target.value,
-              }))
+              setLocalFilters((prev) => ({ ...prev, location: e.target.value }))
             }
             className="rounded-xl border-2 border-gray-300 h-12"
           />
@@ -344,7 +410,7 @@ const FiltersFull = () => {
         </div>
       </div>
 
-      {/* Footer Actions */}
+      {/* Footer */}
       <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex gap-3">
         <Button
           onClick={handleReset}
@@ -361,12 +427,13 @@ const FiltersFull = () => {
         </Button>
       </div>
 
-      {/* Active Filters Count */}
+      {/* Active filter count */}
       <div className="px-6 py-2 bg-orange-50 border-t border-orange-100">
         <p className="text-xs text-center text-orange-800 font-semibold">
           {Object.values(localFilters).filter(
-            v => v && v !== "any" && (Array.isArray(v) ? v.length > 0 : true)
-          ).length} filters active
+            (v) => v && v !== "any" && (Array.isArray(v) ? v.length > 0 : true)
+          ).length}{" "}
+          filters active
         </p>
       </div>
     </div>

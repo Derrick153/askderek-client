@@ -205,7 +205,7 @@ const Footer = () => {
             >
               <h3 className="text-2xl font-bold mb-3">Stay Updated with New Listings</h3>
               <p className="text-gray-400 mb-6">
-                Get weekly updates on verified homes in Tarkwa and Takoradi. No spam, just quality listings.
+                Get weekly updates on verified homes homes across all 16 regions of Ghana. No spam, just quality listings.
               </p>
               
               <form onSubmit={handleSubscribe} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
@@ -288,7 +288,7 @@ const Footer = () => {
             </Link>
             
             <p className="text-gray-400 mb-6 leading-relaxed">
-              Find verified homes in Tarkwa & Takoradi. No agents. No scams. Just real homes with honest prices.
+              Find verified homes anywhere in Ghana. No agents. No scams. Just real homes with honest prices.
             </p>
 
             {/* Trust Badges */}
@@ -307,7 +307,7 @@ const Footer = () => {
             <div className="space-y-3 text-sm text-gray-400">
               <div className="flex items-center gap-3">
                 <MapPin className="w-4 h-4 text-orange-500 flex-shrink-0" />
-                <span>Tarkwa, Western Region, Ghana</span>
+                <span> Ghana 🇬🇭</span>
               </div>
               
               {/* WhatsApp Contact Button */}

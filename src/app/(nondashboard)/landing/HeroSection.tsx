@@ -114,6 +114,7 @@ const HeroSection = () => {
 
   const placeholder = useTypewriter(AUTO_QUERIES, !reduceMotion && !isFocused);
 
+  // ── SEARCH HANDLER ────────────────────────────────────
   const handleSearch = useCallback(
     (query?: string) => {
       const q = (query ?? searchQuery).trim();
@@ -138,25 +139,17 @@ const HeroSection = () => {
     [router]
   );
 
+  // ── RENDER ────────────────────────────────────────────
   return (
     <section
       aria-label="AskDerek hero — search rental properties in Ghana"
       className="relative h-screen min-h-[860px] overflow-hidden bg-zinc-950"
     >
       {/* ── BACKGROUND IMAGE ─────────────────────────── */}
-      {/*
-        Changed opacity-40 → opacity-75
-        Your image now shows through clearly and prominently
-      */}
       <motion.div
         initial={{ scale: 1.08 }}
         animate={!reduceMotion ? { scale: 1 } : undefined}
-        transition={{
-          duration: 16,
-          repeat: Infinity,
-          repeatType: "reverse",
-          ease: "easeInOut",
-        }}
+        transition={{ duration: 16, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }}
         className="absolute inset-0"
       >
         <Image
@@ -165,46 +158,40 @@ const HeroSection = () => {
           fill
           priority
           sizes="100vw"
-          className="object-cover opacity-75"
+          className="object-cover opacity-40"
         />
       </motion.div>
 
       {/* ── GRADIENT OVERLAY ─────────────────────────── */}
-      {/*
-        Lighter overlay so the image is not killed:
-        - Top:    zinc-950/50  (was /80) — image visible at the top
-        - Middle: zinc-950/10  (was /30) — image fully visible in centre
-        - Bottom: zinc-950/85  (was /100) — still dark enough for text
-      */}
       <div
         aria-hidden
-        className="absolute inset-0 bg-gradient-to-b from-zinc-950/50 via-zinc-950/10 to-zinc-950/85"
+        className="absolute inset-0 bg-gradient-to-b from-zinc-950/80 via-zinc-950/30 to-zinc-950"
       />
 
       {/* ── CONTENT ──────────────────────────────────── */}
       <div className="relative z-10 flex flex-col items-center justify-center h-full px-4 text-center pt-20">
+
+        
+        
 
         {/* Headline */}
         <motion.h1
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1 }}
-          className="text-5xl sm:text-7xl md:text-8xl font-black text-white tracking-tighter leading-none mb-4 drop-shadow-lg"
+          className="text-5xl sm:text-7xl md:text-8xl font-black text-white tracking-tighter leading-none mb-4"
         >
           ASK{" "}
           <span className="text-orange-500 italic">DEREK</span>
         </motion.h1>
 
-        {/* Subheadline */}
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.2 }}
-          className="text-white/85 text-base sm:text-lg mb-8 max-w-md drop-shadow-md"
+          className="text-zinc-400 text-base sm:text-lg mb-8 max-w-md"
         >
-          Find verified rentals anywhere in Ghana.
-          <br />
-          No agents. No scams. Real homes.
+        
         </motion.p>
 
         {/* ── SEARCH BAR ─────────────────────────────── */}
@@ -218,10 +205,9 @@ const HeroSection = () => {
             Search rental properties anywhere in Ghana
           </label>
 
-          <div
-            className={`flex bg-white rounded-2xl overflow-hidden shadow-2xl p-1 transition-all duration-200
-              ${isFocused ? "ring-2 ring-orange-500/60" : "ring-1 ring-white/10"}`}
-          >
+          <div className={`flex bg-white rounded-2xl overflow-hidden shadow-2xl p-1 transition-all duration-200
+            ${isFocused ? "ring-2 ring-orange-500/60" : "ring-1 ring-white/10"}`}>
+
             <div className="flex items-center pl-4 text-zinc-400 flex-shrink-0">
               <MapPin className="w-5 h-5" />
             </div>
@@ -233,9 +219,7 @@ const HeroSection = () => {
               onKeyDown={handleKeyDown}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
-              placeholder={
-                isFocused ? "e.g. East Legon, Kumasi, Tarkwa..." : placeholder
-              }
+              placeholder={isFocused ? "e.g. East Legon, Kumasi, Tarkwa..." : placeholder}
               autoComplete="off"
               className="w-full h-14 md:h-16 px-4 text-base sm:text-lg text-zinc-900 border-none focus-visible:ring-0 placeholder:text-zinc-400 bg-transparent"
             />
@@ -259,10 +243,7 @@ const HeroSection = () => {
           className="mt-4 flex flex-wrap justify-center gap-4 sm:gap-6"
         >
           {TRUST_SIGNALS.map((signal) => (
-            <span
-              key={signal}
-              className="flex items-center gap-1.5 text-xs text-white/75 drop-shadow"
-            >
+            <span key={signal} className="flex items-center gap-1.5 text-xs text-zinc-400">
               <span className="w-1.5 h-1.5 rounded-full bg-orange-500 flex-shrink-0" />
               {signal}
             </span>
@@ -276,7 +257,7 @@ const HeroSection = () => {
           transition={{ duration: 0.6, delay: 0.5 }}
           className="mt-12 max-w-4xl w-full"
         >
-          <p className="text-white/50 text-[10px] uppercase tracking-[0.4em] mb-5 font-black">
+          <p className="text-zinc-500 text-[10px] uppercase tracking-[0.4em] mb-5 font-black">
             Browse by region
           </p>
 
@@ -291,19 +272,20 @@ const HeroSection = () => {
                 whileTap={{ scale: 0.94 }}
                 onClick={() => handleRegionClick(region.slug)}
                 aria-label={`Browse properties in ${region.name} Region`}
-                className="px-2 py-2.5 rounded-xl bg-black/40 border border-white/20 text-[10px] sm:text-xs font-bold uppercase text-white/80 backdrop-blur-sm hover:bg-orange-500/20 hover:border-orange-500/50 hover:text-orange-400 transition-all duration-150 leading-tight"
+                className="px-2 py-2.5 rounded-xl bg-white/5 border border-white/10 text-[10px] sm:text-xs font-bold uppercase text-zinc-400 backdrop-blur-sm hover:bg-orange-500/10 hover:border-orange-500/40 hover:text-orange-400 transition-all duration-150 leading-tight"
               >
                 {region.name}
               </motion.button>
             ))}
           </div>
 
+          {/* Browse all regions link */}
           <motion.a
             href="/regions"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 1.2 }}
-            className="inline-flex items-center gap-1.5 mt-6 text-xs text-white/50 hover:text-orange-400 transition-colors font-semibold"
+            className="inline-flex items-center gap-1.5 mt-6 text-xs text-zinc-500 hover:text-orange-400 transition-colors font-semibold"
           >
             <MapPin className="w-3.5 h-3.5" />
             View all 16 regions

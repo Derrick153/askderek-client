@@ -1,3 +1,5 @@
+"use client";
+
 import {
   FiltersState,
   setFilters,
@@ -20,55 +22,50 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { getAllRegions, getCitiesByRegion } from "@/lib/ghanaLocations";
 
-// REAL TARKWA AREAS - These are actual neighborhoods in Tarkwa
-const TARKWA_AREAS = [
-  { value: "any", label: "All Areas" },
-  { value: "tarkwa-market", label: "Tarkwa Market" },
-  { value: "new-town", label: "New Town" },
-  { value: "akoon", label: "Akoon" },
-  { value: "tamso", label: "Tamso" },
-  { value: "nsuta", label: "Nsuta" },
-  { value: "new-site", label: "New Site" },
-  { value: "kwabedu", label: "Kwabedu" },
-  { value: "cyanide", label: "Cyanide" },
-];
-
-// REAL GHANA PRICES - Based on actual Tarkwa rental market (in GH₵)
+// ── PRICE DATA ────────────────────────────────────────────
 const MIN_PRICES = [300, 500, 700, 1000, 1500, 2000];
 const MAX_PRICES = [500, 700, 1000, 1500, 2000, 3000, 5000];
 
-// PROPERTY TYPES - Simple and clear for Ghana market
+// ── PROPERTY TYPES ────────────────────────────────────────
 const PROPERTY_TYPES = [
-  { value: "any", label: "Any Type" },
-  { value: "single-room", label: "Single Room" },
-  { value: "chamber-hall", label: "Chamber & Hall" },
-  { value: "1-bedroom", label: "1 Bedroom" },
-  { value: "2-bedroom", label: "2 Bedroom" },
-  { value: "3-bedroom", label: "3 Bedroom" },
-  { value: "self-contain", label: "Self Contain" },
-  { value: "apartment", label: "Apartment" },
-  { value: "house", label: "House" },
+  { value: "any",           label: "Any Type"       },
+  { value: "Rooms",         label: "Single Room"    },
+  { value: "Chamber",       label: "Chamber & Hall" },
+  { value: "SelfContained", label: "Self-Contained" },
+  { value: "Apartment",     label: "Apartment"      },
+  { value: "CompoundHouse", label: "Compound House" },
+  { value: "Office",        label: "Office Space"   },
+  { value: "Shop",          label: "Shop / Store"   },
 ];
 
+// ─────────────────────────────────────────────────────────
 const FiltersBar = () => {
-  const dispatch = useDispatch();
-  const router = useRouter();
-  const pathname = usePathname();
-  const filters = useAppSelector((state) => state.global.filters);
-  const isFiltersFullOpen = useAppSelector(
-    (state) => state.global.isFiltersFullOpen
-  );
-  const viewMode = useAppSelector((state) => state.global.viewMode);
-  
-  // Local state for search
-  const [searchInput, setSearchInput] = useState(filters.location || "");
-  const [selectedArea, setSelectedArea] = useState(filters.area || "any");
+  const dispatch   = useDispatch();
+  const router     = useRouter();
+  const pathname   = usePathname();
+  const filters    = useAppSelector((state) => state.global.filters);
+  const isFiltersFullOpen = useAppSelector((state) => state.global.isFiltersFullOpen);
+  const viewMode   = useAppSelector((state) => state.global.viewMode);
 
+  const [searchInput, setSearchInput] = useState(filters.location || "");
+
+  // ── All regions from ghanaLocations ──────────────────────
+  const regions = getAllRegions();
+
+  // ── Cities change when region changes ────────────────────
+  const cities = filters.regionSlug
+    ? (() => {
+        try { return getCitiesByRegion(filters.regionSlug).cities; }
+        catch { return []; }
+      })()
+    : [];
+
+  // ── URL sync ──────────────────────────────────────────────
   const updateURL = debounce((newFilters: FiltersState) => {
     const cleanFilters = cleanParams(newFilters);
     const updatedSearchParams = new URLSearchParams();
-
     Object.entries(cleanFilters).forEach(([key, value]) => {
       if (value !== null && value !== undefined && value !== "any") {
         updatedSearchParams.set(
@@ -77,7 +74,6 @@ const FiltersBar = () => {
         );
       }
     });
-
     router.push(`${pathname}?${updatedSearchParams.toString()}`);
   }, 300);
 
@@ -87,53 +83,63 @@ const FiltersBar = () => {
     isMin: boolean | null = null
   ) => {
     let newValue = value;
-
-    // Handle price range (Ghana Cedis)
     if (key === "priceRange") {
-      const currentArrayRange = [...(filters.priceRange || [null, null])];
+      const currentRange = [...(filters.priceRange || [null, null])];
       if (isMin !== null) {
-        const index = isMin ? 0 : 1;
-        currentArrayRange[index] = value === "any" ? null : Number(value);
+        currentRange[isMin ? 0 : 1] = value === "any" ? null : Number(value);
       }
-      newValue = currentArrayRange;
-    } 
-    // Handle other filters
-    else {
+      newValue = currentRange;
+    } else {
       newValue = value === "any" ? null : value;
     }
-
     const newFilters = { ...filters, [key]: newValue };
     dispatch(setFilters(newFilters));
     updateURL(newFilters);
   };
 
-  const handleAreaChange = (area: string) => {
-    setSelectedArea(area);
-    handleFilterChange("area", area);
+  // ── Region change — reset city ────────────────────────────
+  const handleRegionChange = (regionSlug: string) => {
+    const region = regions.find((r) => r.slug === regionSlug);
+    const newFilters = {
+      ...filters,
+      region:     regionSlug === "any" ? null : region?.name ?? null,
+      regionSlug: regionSlug === "any" ? null : regionSlug,
+      city:       null,
+      citySlug:   null,
+    };
+    dispatch(setFilters(newFilters));
+    updateURL(newFilters);
+  };
+
+  // ── City change ───────────────────────────────────────────
+  const handleCityChange = (citySlug: string) => {
+    const city = cities.find((c) => c.slug === citySlug);
+    const newFilters = {
+      ...filters,
+      city:     citySlug === "any" ? null : city?.name ?? null,
+      citySlug: citySlug === "any" ? null : citySlug,
+    };
+    dispatch(setFilters(newFilters));
+    updateURL(newFilters);
   };
 
   const handleQuickSearch = () => {
-    if (searchInput.trim()) {
-      handleFilterChange("location", searchInput);
-    }
+    if (searchInput.trim()) handleFilterChange("location", searchInput);
   };
 
-  // Format Ghana Cedi prices
-  const formatGhanaPrice = (price: number | null, isMin: boolean) => {
-    if (!price) {
-      return isMin ? "Min Price" : "Max Price";
-    }
+  const formatPrice = (price: number | null, isMin: boolean) => {
+    if (!price) return isMin ? "Min Price" : "Max Price";
     return `GH₵${price}`;
   };
 
   return (
     <div className="w-full space-y-4">
-      {/* Main Filters Row */}
       <div className="flex flex-wrap justify-between items-center gap-3 py-4">
-        {/* Left Side - Search & Filters */}
+
+        {/* ── Left Side ─────────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-3">
-          
-          {/* All Filters Button */}
+
+          {/* All Filters toggle */}
           <Button
             variant="outline"
             className={cn(
@@ -146,36 +152,55 @@ const FiltersBar = () => {
             <span className="font-semibold">All Filters</span>
           </Button>
 
-          {/* Area Quick Select - REAL TARKWA AREAS */}
-          <Select value={selectedArea} onValueChange={handleAreaChange}>
-            <SelectTrigger className="w-40 rounded-xl border-2 border-orange-400 font-semibold">
+          {/* ── Region ─────────────────────────────────── */}
+          <Select
+            value={filters.regionSlug || "any"}
+            onValueChange={handleRegionChange}
+          >
+            <SelectTrigger className="w-44 rounded-xl border-2 border-orange-400 font-semibold">
               <MapPin className="w-4 h-4 mr-2 text-orange-600" />
-              <SelectValue />
+              <SelectValue placeholder="All Regions" />
             </SelectTrigger>
-            <SelectContent className="bg-white">
-              {TARKWA_AREAS.map((area) => (
-                <SelectItem key={area.value} value={area.value}>
-                  {area.label}
+            <SelectContent className="bg-white max-h-80 overflow-y-auto">
+              <SelectItem value="any">All Regions</SelectItem>
+              {regions.map((r) => (
+                <SelectItem key={r.slug} value={r.slug}>
+                  {r.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
 
-          {/* Price Range - REAL GHANA CEDIS */}
+          {/* ── City (only shown when region is selected) ── */}
+          {filters.regionSlug && cities.length > 0 && (
+            <Select
+              value={filters.citySlug || "any"}
+              onValueChange={handleCityChange}
+            >
+              <SelectTrigger className="w-40 rounded-xl border-2 border-orange-400 font-semibold">
+                <MapPin className="w-4 h-4 mr-2 text-orange-600" />
+                <SelectValue placeholder="All Cities" />
+              </SelectTrigger>
+              <SelectContent className="bg-white max-h-80 overflow-y-auto">
+                <SelectItem value="any">All Cities</SelectItem>
+                {cities.map((c) => (
+                  <SelectItem key={c.slug} value={c.slug}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {/* ── Price Range ─────────────────────────────── */}
           <div className="flex items-center gap-2 bg-gray-50 rounded-xl p-1 border-2 border-orange-400">
             <DollarSign className="w-4 h-4 text-orange-600 ml-2" />
-            
-            {/* Min Price */}
             <Select
               value={filters.priceRange?.[0]?.toString() || "any"}
-              onValueChange={(value) =>
-                handleFilterChange("priceRange", value, true)
-              }
+              onValueChange={(value) => handleFilterChange("priceRange", value, true)}
             >
               <SelectTrigger className="w-28 border-0 bg-transparent">
-                <SelectValue>
-                  {formatGhanaPrice(filters.priceRange?.[0], true)}
-                </SelectValue>
+                <SelectValue>{formatPrice(filters.priceRange?.[0], true)}</SelectValue>
               </SelectTrigger>
               <SelectContent className="bg-white">
                 <SelectItem value="any">Any Min</SelectItem>
@@ -189,17 +214,12 @@ const FiltersBar = () => {
 
             <span className="text-gray-400">-</span>
 
-            {/* Max Price */}
             <Select
               value={filters.priceRange?.[1]?.toString() || "any"}
-              onValueChange={(value) =>
-                handleFilterChange("priceRange", value, false)
-              }
+              onValueChange={(value) => handleFilterChange("priceRange", value, false)}
             >
               <SelectTrigger className="w-28 border-0 bg-transparent">
-                <SelectValue>
-                  {formatGhanaPrice(filters.priceRange?.[1], false)}
-                </SelectValue>
+                <SelectValue>{formatPrice(filters.priceRange?.[1], false)}</SelectValue>
               </SelectTrigger>
               <SelectContent className="bg-white">
                 <SelectItem value="any">Any Max</SelectItem>
@@ -212,7 +232,7 @@ const FiltersBar = () => {
             </Select>
           </div>
 
-          {/* Rooms - Simple for Ghana */}
+          {/* ── Beds ────────────────────────────────────── */}
           <Select
             value={filters.beds || "any"}
             onValueChange={(value) => handleFilterChange("beds", value)}
@@ -225,16 +245,14 @@ const FiltersBar = () => {
               <SelectItem value="1">Single Room</SelectItem>
               <SelectItem value="2">2 Rooms</SelectItem>
               <SelectItem value="3">3 Rooms</SelectItem>
-              <SelectItem value="4+">4+ Rooms</SelectItem>
+              <SelectItem value="4">4+ Rooms</SelectItem>
             </SelectContent>
           </Select>
 
-          {/* Property Type - Ghana Specific */}
+          {/* ── Property Type ────────────────────────────── */}
           <Select
             value={filters.propertyType || "any"}
-            onValueChange={(value) =>
-              handleFilterChange("propertyType", value)
-            }
+            onValueChange={(value) => handleFilterChange("propertyType", value)}
           >
             <SelectTrigger className="w-40 rounded-xl border-2 border-orange-400 font-semibold">
               <SelectValue placeholder="Property Type" />
@@ -248,7 +266,7 @@ const FiltersBar = () => {
             </SelectContent>
           </Select>
 
-          {/* Search Box - Find specific property */}
+          {/* ── Search Box ──────────────────────────────── */}
           <div className="flex items-center bg-white rounded-xl border-2 border-orange-400 overflow-hidden">
             <Input
               placeholder="Search property..."
@@ -266,7 +284,7 @@ const FiltersBar = () => {
           </div>
         </div>
 
-        {/* Right Side - View Toggle */}
+        {/* ── Right Side — View Toggle ──────────────────── */}
         <div className="flex items-center gap-2">
           <div className="flex border-2 border-orange-400 rounded-xl overflow-hidden">
             <Button
@@ -293,62 +311,52 @@ const FiltersBar = () => {
         </div>
       </div>
 
-      {/* Active Filters Display - Show what user selected */}
-      {(filters.area !== "any" || 
-        filters.priceRange?.[0] || 
-        filters.priceRange?.[1] || 
-        filters.beds !== "any" || 
-        filters.propertyType !== "any") && (
+      {/* ── Active Filters Display ────────────────────── */}
+      {(filters.region ||
+        filters.city ||
+        filters.priceRange?.[0] ||
+        filters.priceRange?.[1] ||
+        filters.beds ||
+        filters.propertyType) && (
         <div className="flex flex-wrap items-center gap-2 px-2">
           <span className="text-sm text-gray-600 font-semibold">Active:</span>
-          
-          {filters.area && filters.area !== "any" && (
+
+          {filters.region && (
             <div className="px-3 py-1 bg-orange-100 text-orange-800 rounded-full text-sm font-semibold flex items-center gap-2">
               <MapPin className="w-3 h-3" />
-              {TARKWA_AREAS.find(a => a.value === filters.area)?.label}
-              <button
-                onClick={() => handleAreaChange("any")}
-                className="hover:text-orange-900"
-              >
-                ×
-              </button>
+              {filters.region}
+              <button onClick={() => handleRegionChange("any")} className="hover:text-orange-900">×</button>
+            </div>
+          )}
+
+          {filters.city && (
+            <div className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-semibold flex items-center gap-2">
+              <MapPin className="w-3 h-3" />
+              {filters.city}
+              <button onClick={() => handleCityChange("any")} className="hover:text-amber-900">×</button>
             </div>
           )}
 
           {(filters.priceRange?.[0] || filters.priceRange?.[1]) && (
             <div className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-semibold flex items-center gap-2">
               <DollarSign className="w-3 h-3" />
-              {filters.priceRange?.[0] ? `GH₵${filters.priceRange[0]}` : "Any"} - {filters.priceRange?.[1] ? `GH₵${filters.priceRange[1]}` : "Any"}
-              <button
-                onClick={() => handleFilterChange("priceRange", [null, null])}
-                className="hover:text-green-900"
-              >
-                ×
-              </button>
+              {filters.priceRange?.[0] ? `GH₵${filters.priceRange[0]}` : "Any"} –{" "}
+              {filters.priceRange?.[1] ? `GH₵${filters.priceRange[1]}` : "Any"}
+              <button onClick={() => handleFilterChange("priceRange", [null, null])} className="hover:text-green-900">×</button>
             </div>
           )}
 
-          {filters.beds && filters.beds !== "any" && (
+          {filters.beds && (
             <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold flex items-center gap-2">
               {filters.beds === "1" ? "Single Room" : `${filters.beds} Rooms`}
-              <button
-                onClick={() => handleFilterChange("beds", "any")}
-                className="hover:text-blue-900"
-              >
-                ×
-              </button>
+              <button onClick={() => handleFilterChange("beds", "any")} className="hover:text-blue-900">×</button>
             </div>
           )}
 
-          {filters.propertyType && filters.propertyType !== "any" && (
+          {filters.propertyType && (
             <div className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-semibold flex items-center gap-2">
-              {PROPERTY_TYPES.find(t => t.value === filters.propertyType)?.label}
-              <button
-                onClick={() => handleFilterChange("propertyType", "any")}
-                className="hover:text-purple-900"
-              >
-                ×
-              </button>
+              {PROPERTY_TYPES.find((t) => t.value === filters.propertyType)?.label}
+              <button onClick={() => handleFilterChange("propertyType", "any")} className="hover:text-purple-900">×</button>
             </div>
           )}
 
@@ -356,13 +364,15 @@ const FiltersBar = () => {
             onClick={() => {
               const cleared = {
                 ...filters,
-                area: "any",
+                region:     null,
+                regionSlug: null,
+                city:       null,
+                citySlug:   null,
                 priceRange: [null, null] as [null, null],
-                beds: "any",
-                propertyType: "any",
-                location: "",
+                beds:       null,
+                propertyType: null,
+                location:   "",
               };
-              setSelectedArea("any");
               dispatch(setFilters(cleared));
               updateURL(cleared);
             }}

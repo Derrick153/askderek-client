@@ -22,7 +22,8 @@ const discoverSteps: DiscoverStep[] = [
     imageSrc: "/landing-icon-wand.png",
     icon: <Search className="w-6 h-6" />,
     title: "Search for Your Home",
-    description: "Browse verified homes in Tarkwa. Filter by area, price, and room type. See real photos and honest reviews.",
+    description: "Browse verified homes across Ghana. Filter by region, price, and room type. See real photos and honest reviews."
+,
     step: 1,
     accentColor: "from-blue-500 to-cyan-500",
   },
@@ -40,7 +41,7 @@ const discoverSteps: DiscoverStep[] = [
     imageSrc: "/landing-icon-heart.png",
     icon: <Heart className="w-6 h-6" />,
     title: "Move In & Enjoy",
-    description: "Pack your things and move in. You saved money, avoided scams, and found a real verified home in Tarkwa.",
+    description: "Pack your things and move in. You saved money, avoided scams, and found a real verified anywhere in Ghana.",
     step: 3,
     accentColor: "from-orange-500 to-red-500",
   },
@@ -118,7 +119,7 @@ const DiscoverSection = () => {
             Find Your Home in 3 Simple Steps
           </h2>
           <p className="mt-4 text-lg text-gray-600 max-w-2xl mx-auto leading-relaxed">
-            No confusing process. No agent wahala. Just simple steps to find your perfect home in Tarkwa.
+            No confusing process. No agent wahala. Just simple steps to find your perfect anywhere in Ghana.
           </p>
         </motion.div>
 
