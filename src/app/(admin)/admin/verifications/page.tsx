@@ -36,11 +36,12 @@ const AdminVerifications = () => {
           <div key={v.id} className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex-1">
-                <h3 className="font-bold text-gray-900 text-lg">{v.manager?.name}</h3>
-                <p className="text-gray-500 text-sm">{v.manager?.email}</p>
+                {/* ✅ FIXED: data is at v.manager.user not v.manager */}
+                <h3 className="font-bold text-gray-900 text-lg">{v.manager?.user?.name || "Unknown"}</h3>
+                <p className="text-gray-500 text-sm">{v.manager?.user?.email || "No email"}</p>
                 <div className="flex items-center gap-1 text-gray-500 text-sm mt-1">
                   <Phone className="w-4 h-4" />
-                  <span>{v.phoneNumber}</span>
+                  <span>{v.phoneNumber || "No phone"}</span>
                 </div>
                 <p className="text-xs text-gray-400 mt-1">Submitted: {new Date(v.submittedAt).toLocaleDateString()}</p>
                 <div className="flex gap-3 mt-3">

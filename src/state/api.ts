@@ -24,14 +24,29 @@ export const api = createApi({
   baseQuery: fetchBaseQuery({
     baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
     prepareHeaders: async (headers) => {
+      // ✅ SSR safety — window does not exist on the server
+      if (typeof window === "undefined") return headers;
+
       try {
-        const token = await (window as any).Clerk?.session?.getToken();
+        let token = null;
+        let attempts = 0;
+
+        // ✅ Wait for Clerk to be ready — retry up to 5 times
+        while (!token && attempts < 5) {
+          token = await (window as any).Clerk?.session?.getToken();
+          if (!token) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            attempts++;
+          }
+        }
+
         if (token) {
           headers.set("Authorization", `Bearer ${token}`);
         }
       } catch (e) {
         console.error("Failed to get Clerk token:", e);
       }
+
       return headers;
     },
   }),
@@ -56,6 +71,8 @@ export const api = createApi({
     getAuthUser: build.query<ClerkUser | null, void>({
       queryFn: async () => {
         try {
+          if (typeof window === "undefined") return { data: null };
+
           const clerkUser = (window as any).Clerk?.user;
           if (!clerkUser) return { data: null };
 

@@ -1,14 +1,12 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { Building2, Home, ArrowRight, Loader2, Shield } from "lucide-react";
+import { useState } from "react";
+import { Building2, Home, ArrowRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function RoleSelectionPage() {
   const { user, isLoaded } = useUser();
-  const router = useRouter();
   const [selectedRole, setSelectedRole] = useState<"tenant" | "manager" | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
@@ -44,10 +42,13 @@ export default function RoleSelectionPage() {
       toast.success(`Welcome! Your ${role} account is ready.`);
       await new Promise((resolve) => setTimeout(resolve, 800));
 
+      // ✅ Use window.location.href instead of router.push
+      // This forces a full page reload so Clerk issues a fresh session token
+      // with the updated userType — middleware will then allow access correctly
       if (role === "manager") {
-        router.push("/managers/properties");
+        window.location.href = "/managers/properties";
       } else {
-        router.push("/tenants/favorites");
+        window.location.href = "/tenants/favorites";
       }
     } catch (error: any) {
       toast.error(error.message || "Failed to create account. Please try again.");
@@ -111,6 +112,7 @@ export default function RoleSelectionPage() {
                   ))}
                 </ul>
                 <button
+                  onClick={(e) => { e.stopPropagation(); !isCreating && handleRoleSelection("tenant"); }}
                   disabled={isCreating}
                   className="w-full bg-orange-600 hover:bg-orange-500 text-white px-6 py-3 rounded-xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-50 border-b-2 border-orange-700 active:border-b-0 active:translate-y-px"
                 >
@@ -146,6 +148,7 @@ export default function RoleSelectionPage() {
                   ))}
                 </ul>
                 <button
+                  onClick={(e) => { e.stopPropagation(); !isCreating && handleRoleSelection("manager"); }}
                   disabled={isCreating}
                   className="w-full bg-orange-600 hover:bg-orange-500 text-white px-6 py-3 rounded-xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-50 border-b-2 border-orange-700 active:border-b-0 active:translate-y-px"
                 >

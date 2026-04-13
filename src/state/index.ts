@@ -2,17 +2,20 @@ import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 export interface FiltersState {
   location: string;
-  beds: string;
-  baths: string;
-  propertyType: string;
+  beds: string | null;
+  baths: string | null;
+  propertyType: string | null;
   amenities: string[];
   availableFrom: string;
   priceRange: [number, number] | [null, null];
   squareFeet: [number, number] | [null, null];
   coordinates: [number, number];
-  area: string;
-
-  // ✅ ADDED — needed for manager properties filtering
+  area: string | null;
+  region: string | null;
+  regionSlug: string | null;
+  city: string | null;
+  citySlug: string | null;
+  areaSlug: string | null;
   managerClerkId?: string;
 }
 
@@ -24,7 +27,7 @@ interface InitialStateTypes {
 
 export const initialState: InitialStateTypes = {
   filters: {
-    location: "Tarkwa",
+    location: "Ghana",
     beds: "any",
     baths: "any",
     propertyType: "any",
@@ -32,8 +35,13 @@ export const initialState: InitialStateTypes = {
     availableFrom: "any",
     priceRange: [null, null],
     squareFeet: [null, null],
-    coordinates: [-1.9942, 5.3034], // Tarkwa, Ghana
-    area: "any",
+    coordinates: [-1.0232, 7.9465],
+    area: null,
+    region: null,
+    regionSlug: null,
+    city: null,
+    citySlug: null,
+    areaSlug: null,
   },
   isFiltersFullOpen: false,
   viewMode: "grid",

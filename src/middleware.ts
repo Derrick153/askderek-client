@@ -21,6 +21,11 @@ export default clerkMiddleware(async (auth, req) => {
   }
 
   if (userId) {
+    // ✅ Always allow select-role page — session claims may not have userType yet
+    if (req.nextUrl.pathname === "/select-role") {
+      return NextResponse.next();
+    }
+
     // ✅ Read from session token custom claim
     const userType =
       (sessionClaims as any)?.userType ||
