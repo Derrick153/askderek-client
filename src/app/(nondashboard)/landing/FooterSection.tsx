@@ -98,7 +98,7 @@ const socialLinks = [
   },
 ];
 
-const Footer = () => {
+const FooterSection = () => {
   const prefersReducedMotion = useReducedMotion();
   const [email, setEmail] = useState("");
   const [subscribeStatus, setSubscribeStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
@@ -459,4 +459,4 @@ const Footer = () => {
   );
 };
 
-export default Footer;
+export default FooterSection;
