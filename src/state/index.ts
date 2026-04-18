@@ -27,7 +27,7 @@ interface InitialStateTypes {
 
 export const initialState: InitialStateTypes = {
   filters: {
-    location: "Ghana",
+    location: "",
     beds: "any",
     baths: "any",
     propertyType: "any",
@@ -35,7 +35,7 @@ export const initialState: InitialStateTypes = {
     availableFrom: "any",
     priceRange: [null, null],
     squareFeet: [null, null],
-    coordinates: [-1.0232, 7.9465],
+    coordinates: [0, 0],
     area: null,
     region: null,
     regionSlug: null,
