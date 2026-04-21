@@ -12,11 +12,11 @@ import { FiltersState } from ".";
 
 // ── CLERK USER TYPE ────────────────────────────────────────
 export interface ClerkUser {
-  userId: string;
-  email: string;
-  name: string;
+  userId:      string;
+  email:       string;
+  name:        string;
   phoneNumber?: string;
-  userType: "tenant" | "manager" | "admin";
+  userType:    "tenant" | "manager" | "admin";
 }
 
 export const api = createApi({
@@ -24,14 +24,10 @@ export const api = createApi({
   baseQuery: fetchBaseQuery({
     baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
     prepareHeaders: async (headers) => {
-      // ✅ SSR safety — window does not exist on the server
       if (typeof window === "undefined") return headers;
-
       try {
-        let token = null;
+        let token    = null;
         let attempts = 0;
-
-        // ✅ Wait for Clerk to be ready — retry up to 5 times
         while (!token && attempts < 5) {
           token = await (window as any).Clerk?.session?.getToken();
           if (!token) {
@@ -39,14 +35,10 @@ export const api = createApi({
             attempts++;
           }
         }
-
-        if (token) {
-          headers.set("Authorization", `Bearer ${token}`);
-        }
+        if (token) headers.set("Authorization", `Bearer ${token}`);
       } catch (e) {
         console.error("Failed to get Clerk token:", e);
       }
-
       return headers;
     },
   }),
@@ -57,6 +49,9 @@ export const api = createApi({
     "PropertyDetails",
     "Leases",
     "Payments",
+    "Receipts",
+    "Transactions",
+    "Commissions",
     "Applications",
     "Admin",
     "Verifications",
@@ -72,23 +67,19 @@ export const api = createApi({
       queryFn: async () => {
         try {
           if (typeof window === "undefined") return { data: null };
-
           const clerkUser = (window as any).Clerk?.user;
           if (!clerkUser) return { data: null };
-
           const userType =
             (clerkUser.unsafeMetadata?.userType as "tenant" | "manager" | "admin") ||
-            (clerkUser.publicMetadata?.userType as "tenant" | "manager" | "admin") ||
+            (clerkUser.publicMetadata?.userType  as "tenant" | "manager" | "admin") ||
             "tenant";
-
           const user: ClerkUser = {
-            userId: clerkUser.id,
-            email: clerkUser.primaryEmailAddress?.emailAddress || "",
-            name: `${clerkUser.firstName || ""} ${clerkUser.lastName || ""}`.trim(),
+            userId:      clerkUser.id,
+            email:       clerkUser.primaryEmailAddress?.emailAddress || "",
+            name:        `${clerkUser.firstName || ""} ${clerkUser.lastName || ""}`.trim(),
             phoneNumber: clerkUser.primaryPhoneNumber?.phoneNumber || "",
             userType,
           };
-
           return { data: user };
         } catch (error: any) {
           return { error: error?.message || "Could not fetch user data" };
@@ -105,34 +96,12 @@ export const api = createApi({
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Registration successful!",
-          error: "Failed to register user.",
+          error:   "Failed to register user.",
         });
       },
     }),
 
-    getMe: build.query<
-      {
-        id: number;
-        clerkId: string;
-        name: string;
-        email: string;
-        role: string;
-        isActive: boolean;
-        manager?: {
-          id: number;
-          clerkId: string;
-          userId: number;
-          isVerified: boolean;
-        } | null;
-        tenant?: {
-          id: number;
-          clerkId: string;
-          userId: number;
-          phoneNumber: string | null;
-        } | null;
-      },
-      void
-    >({
+    getMe: build.query<any, void>({
       query: () => "auth/me",
       providesTags: ["Auth"],
       async onQueryStarted(_, { queryFulfilled }) {
@@ -140,16 +109,13 @@ export const api = createApi({
       },
     }),
 
-    updateMe: build.mutation<
-      any,
-      { name?: string; email?: string; phoneNumber?: string }
-    >({
+    updateMe: build.mutation<any, { name?: string; email?: string; phoneNumber?: string }>({
       query: (body) => ({ url: "auth/me", method: "PUT", body }),
       invalidatesTags: ["Auth"],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Profile updated successfully!",
-          error: "Failed to update profile.",
+          error:   "Failed to update profile.",
         });
       },
     }),
@@ -161,20 +127,20 @@ export const api = createApi({
     >({
       query: (filters) => {
         const params = cleanParams({
-          location: filters.location,
-          area: filters.area,
-          priceMin: filters.priceRange?.[0],
-          priceMax: filters.priceRange?.[1],
-          beds: filters.beds,
-          baths: filters.baths,
-          propertyType: filters.propertyType,
+          location:      filters.location,
+          area:          filters.area,
+          priceMin:      filters.priceRange?.[0],
+          priceMax:      filters.priceRange?.[1],
+          beds:          filters.beds,
+          baths:         filters.baths,
+          propertyType:  filters.propertyType,
           squareFeetMin: filters.squareFeet?.[0],
           squareFeetMax: filters.squareFeet?.[1],
-          amenities: filters.amenities?.join(","),
+          amenities:     filters.amenities?.join(","),
           availableFrom: filters.availableFrom,
-          favoriteIds: filters.favoriteIds?.join(","),
-          latitude: filters.coordinates?.[1],
-          longitude: filters.coordinates?.[0],
+          favoriteIds:   filters.favoriteIds?.join(","),
+          latitude:      filters.coordinates?.[1],
+          longitude:     filters.coordinates?.[0],
         });
         return { url: "properties", params };
       },
@@ -200,15 +166,15 @@ export const api = createApi({
 
     createProperty: build.mutation<Property, FormData>({
       query: (newProperty) => ({
-        url: "properties",
+        url:    "properties",
         method: "POST",
-        body: newProperty,
+        body:   newProperty,
       }),
       invalidatesTags: [{ type: "Properties", id: "LIST" }],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Property created successfully!",
-          error: "Failed to create property.",
+          error:   "Failed to create property.",
         });
       },
     }),
@@ -241,15 +207,15 @@ export const api = createApi({
       { userId: string } & Partial<Tenant>
     >({
       query: ({ userId, ...updatedTenant }) => ({
-        url: `tenants/${userId}`,
+        url:    `tenants/${userId}`,
         method: "PUT",
-        body: updatedTenant,
+        body:   updatedTenant,
       }),
       invalidatesTags: (result) => [{ type: "Tenants", id: result?.id }],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Settings updated successfully!",
-          error: "Failed to update settings.",
+          error:   "Failed to update settings.",
         });
       },
     }),
@@ -259,17 +225,17 @@ export const api = createApi({
       { userId: string; propertyId: number }
     >({
       query: ({ userId, propertyId }) => ({
-        url: `tenants/${userId}/favorites/${propertyId}`,
+        url:    `tenants/${userId}/favorites/${propertyId}`,
         method: "POST",
       }),
       invalidatesTags: (result) => [
-        { type: "Tenants", id: result?.id },
+        { type: "Tenants",    id: result?.id },
         { type: "Properties", id: "LIST" },
       ],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Added to favorites!",
-          error: "Failed to add to favorites.",
+          error:   "Failed to add to favorites.",
         });
       },
     }),
@@ -279,17 +245,17 @@ export const api = createApi({
       { userId: string; propertyId: number }
     >({
       query: ({ userId, propertyId }) => ({
-        url: `tenants/${userId}/favorites/${propertyId}`,
+        url:    `tenants/${userId}/favorites/${propertyId}`,
         method: "DELETE",
       }),
       invalidatesTags: (result) => [
-        { type: "Tenants", id: result?.id },
+        { type: "Tenants",    id: result?.id },
         { type: "Properties", id: "LIST" },
       ],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Removed from favorites!",
-          error: "Failed to remove from favorites.",
+          error:   "Failed to remove from favorites.",
         });
       },
     }),
@@ -314,20 +280,20 @@ export const api = createApi({
       { userId: string } & Partial<Manager>
     >({
       query: ({ userId, ...updatedManager }) => ({
-        url: `managers/${userId}`,
+        url:    `managers/${userId}`,
         method: "PUT",
-        body: updatedManager,
+        body:   updatedManager,
       }),
       invalidatesTags: (result) => [{ type: "Managers", id: result?.id }],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Settings updated successfully!",
-          error: "Failed to update settings.",
+          error:   "Failed to update settings.",
         });
       },
     }),
 
-    // ── LEASES & PAYMENTS ──────────────────────────────────
+    // ── LEASES ─────────────────────────────────────────────
     getLeases: build.query<Lease[], void>({
       query: () => "leases",
       providesTags: ["Leases"],
@@ -344,6 +310,7 @@ export const api = createApi({
       },
     }),
 
+    // ── PAYMENTS ───────────────────────────────────────────
     getPayments: build.query<Payment[], number>({
       query: (leaseId) => `leases/${leaseId}/payments`,
       providesTags: ["Payments"],
@@ -357,9 +324,9 @@ export const api = createApi({
       { leaseId: number; amount: number; email: string }
     >({
       query: (data) => ({
-        url: "payments/initialize",
+        url:    "payments/initialize",
         method: "POST",
-        body: data,
+        body:   data,
       }),
       invalidatesTags: ["Payments"],
       async onQueryStarted(_, { queryFulfilled }) {
@@ -373,9 +340,106 @@ export const api = createApi({
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Payment verified successfully!",
-          error: "Failed to verify payment.",
+          error:   "Failed to verify payment.",
         });
       },
+    }),
+
+    getPaymentStatus: build.query<any, string>({
+      query: (reference) => `payments/status/${reference}`,
+      providesTags: ["Payments"],
+    }),
+
+    getPaymentsByLease: build.query<any, number>({
+      query: (leaseId) => `payments/lease/${leaseId}`,
+      providesTags: ["Payments"],
+    }),
+
+    getPaymentReceipt: build.query<any, string>({
+      query: (reference) => `payments/receipt/${reference}`,
+      providesTags: ["Receipts"],
+    }),
+
+    getTenantReceipts: build.query<any, string>({
+      query: (tenantClerkId) => `payments/receipts/${tenantClerkId}`,
+      providesTags: ["Receipts"],
+    }),
+
+    getLandlordEarnings: build.query<any, string>({
+      query: (managerClerkId) => `payments/earnings/${managerClerkId}`,
+      providesTags: ["Payments"],
+    }),
+
+    getTransactionsByTenant: build.query<any, string>({
+      query: (tenantClerkId) => `payments/transactions/${tenantClerkId}`,
+      providesTags: ["Transactions"],
+    }),
+
+    // ── ADMIN PAYMENTS ─────────────────────────────────────
+    getAdminAllPayments: build.query<any, { page?: number; status?: string }>({
+      query: (params) => ({ url: "admin/payments", params }),
+      providesTags: ["Payments"],
+    }),
+
+    getAdminRevenue: build.query<any, void>({
+      query: () => "admin/payments/revenue",
+      providesTags: ["Payments"],
+    }),
+
+    getAdminPaymentByRef: build.query<any, string>({
+      query: (reference) => `admin/payments/${reference}`,
+      providesTags: ["Payments"],
+    }),
+
+    overridePaymentStatus: build.mutation<any, {
+      reference:    string;
+      newStatus:    string;
+      reason:       string;
+      adminClerkId: string;
+    }>({
+      query: ({ reference, ...body }) => ({
+        url:    `admin/payments/override/${reference}`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["Payments"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, {
+          success: "Payment status updated!",
+          error:   "Failed to override payment.",
+        });
+      },
+    }),
+
+    recordCashPayment: build.mutation<any, {
+      leaseId:      number;
+      amountPaid:   number;
+      dueDate:      string;
+      adminClerkId: string;
+      notes?:       string;
+    }>({
+      query: (body) => ({
+        url:    "admin/payments/cash",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["Payments"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, {
+          success: "Cash payment recorded!",
+          error:   "Failed to record cash payment.",
+        });
+      },
+    }),
+
+    getAdminCommissionSummary: build.query<any, void>({
+      query: () => "admin/payments/commission/summary",
+      providesTags: ["Commissions"],
+    }),
+
+    getAdminCommissionByPeriod: build.query<any, { from?: string; to?: string }>({
+      query: (params) => ({ url: "admin/payments/commission/period", params }),
+      providesTags: ["Commissions"],
     }),
 
     // ── APPLICATIONS ───────────────────────────────────────
@@ -385,7 +449,7 @@ export const api = createApi({
     >({
       query: (params) => {
         const queryParams = new URLSearchParams();
-        if (params.userId) queryParams.append("userId", params.userId);
+        if (params.userId)   queryParams.append("userId",   params.userId);
         if (params.userType) queryParams.append("userType", params.userType);
         return `applications?${queryParams.toString()}`;
       },
@@ -400,15 +464,15 @@ export const api = createApi({
       { id: number; status: string }
     >({
       query: ({ id, status }) => ({
-        url: `applications/${id}/status`,
+        url:    `applications/${id}/status`,
         method: "PUT",
-        body: { status },
+        body:   { status },
       }),
       invalidatesTags: ["Applications", "Leases", "Properties"],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Application updated successfully!",
-          error: "Failed to update application.",
+          error:   "Failed to update application.",
         });
       },
     }),
@@ -419,7 +483,7 @@ export const api = createApi({
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, {
           success: "Application submitted successfully!",
-          error: "Failed to submit application.",
+          error:   "Failed to submit application.",
         });
       },
     }),
@@ -443,7 +507,6 @@ export const api = createApi({
       providesTags: ["Admin"],
     }),
 
-    // ── PROPERTY MODERATION ────────────────────────────────
     getAdminAllProperties: build.query<any, void>({
       query: () => "admin/properties/all",
       providesTags: ["Properties"],
@@ -461,14 +524,13 @@ export const api = createApi({
 
     rejectProperty: build.mutation<any, { id: number; reason: string }>({
       query: ({ id, reason }) => ({
-        url: `admin/properties/${id}/reject`,
+        url:    `admin/properties/${id}/reject`,
         method: "PUT",
-        body: { reason },
+        body:   { reason },
       }),
       invalidatesTags: ["Properties"],
     }),
 
-    // ── LANDLORD VERIFICATION ──────────────────────────────
     getPendingVerifications: build.query<any, void>({
       query: () => "admin/verifications/pending",
       providesTags: ["Verifications"],
@@ -481,14 +543,13 @@ export const api = createApi({
 
     rejectVerification: build.mutation<any, { id: number; reason: string }>({
       query: ({ id, reason }) => ({
-        url: `admin/verifications/${id}/reject`,
+        url:    `admin/verifications/${id}/reject`,
         method: "PUT",
-        body: { reason },
+        body:   { reason },
       }),
       invalidatesTags: ["Verifications"],
     }),
 
-    // ── USER MANAGEMENT ────────────────────────────────────
     getAdminAllManagers: build.query<any, void>({
       query: () => "admin/users/managers",
       providesTags: ["Managers"],
@@ -499,16 +560,17 @@ export const api = createApi({
       providesTags: ["Tenants"],
     }),
 
-    // ── BLACKLIST ──────────────────────────────────────────
     getBlacklist: build.query<any, void>({
       query: () => "admin/blacklist",
       providesTags: ["Blacklist"],
     }),
 
-    addToBlacklist: build.mutation<
-      any,
-      { phoneNumber?: string; email?: string; ghanaCardId?: string; reason: string }
-    >({
+    addToBlacklist: build.mutation<any, {
+      phoneNumber?: string;
+      email?:       string;
+      ghanaCardId?: string;
+      reason:       string;
+    }>({
       query: (body) => ({ url: "admin/blacklist", method: "POST", body }),
       invalidatesTags: ["Blacklist"],
     }),
@@ -518,7 +580,6 @@ export const api = createApi({
       invalidatesTags: ["Blacklist"],
     }),
 
-    // ── REPORTS ────────────────────────────────────────────
     getAdminReports: build.query<any, void>({
       query: () => "admin/reports",
       providesTags: ["Reports"],
@@ -529,7 +590,6 @@ export const api = createApi({
       invalidatesTags: ["Reports"],
     }),
 
-    // ── AUDIT LOGS ─────────────────────────────────────────
     getAuditLogs: build.query<any, void>({
       query: () => "admin/audit-logs",
       providesTags: ["AuditLogs"],
@@ -556,12 +616,27 @@ export const {
   // Managers
   useGetManagerPropertiesQuery,
   useUpdateManagerSettingsMutation,
-  // Leases & Payments
+  // Leases
   useGetLeasesQuery,
   useGetPropertyLeasesQuery,
+  // Payments
   useGetPaymentsQuery,
   useInitializePaymentMutation,
   useVerifyPaymentQuery,
+  useGetPaymentStatusQuery,
+  useGetPaymentsByLeaseQuery,
+  useGetPaymentReceiptQuery,
+  useGetTenantReceiptsQuery,
+  useGetLandlordEarningsQuery,
+  useGetTransactionsByTenantQuery,
+  // Admin Payments
+  useGetAdminAllPaymentsQuery,
+  useGetAdminRevenueQuery,
+  useGetAdminPaymentByRefQuery,
+  useOverridePaymentStatusMutation,
+  useRecordCashPaymentMutation,
+  useGetAdminCommissionSummaryQuery,
+  useGetAdminCommissionByPeriodQuery,
   // Applications
   useGetApplicationsQuery,
   useUpdateApplicationStatusMutation,
