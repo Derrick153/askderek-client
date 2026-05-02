@@ -1,7 +1,7 @@
 "use client";
 
 import { useGetAuditLogsQuery } from "@/state/api";
-import { 
+import {
   Search,
   Download,
   Clock,
@@ -10,7 +10,6 @@ import {
   Users,
   Lock,
   Unlock,
-  FileText,
   CheckCircle,
   XCircle,
   Eye,
@@ -24,99 +23,334 @@ import {
   Upload,
   LogIn,
   LogOut,
+  LayoutList,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
-// Action type icons and colors
-const actionConfig: Record<string, { icon: any; color: string; bg: string }> = {
-  CREATE: { icon: Plus, color: "text-emerald-600", bg: "bg-emerald-50" },
-  UPDATE: { icon: Edit, color: "text-blue-600", bg: "bg-blue-50" },
-  DELETE: { icon: Trash2, color: "text-rose-600", bg: "bg-rose-50" },
-  APPROVE: { icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50" },
-  APPROVE_PROPERTY: { icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50" },
-  APPROVE_VERIFICATION: { icon: UserCheck, color: "text-emerald-600", bg: "bg-emerald-50" },
-  REJECT: { icon: XCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  REJECT_PROPERTY: { icon: XCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  REJECT_VERIFICATION: { icon: XCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  LOGIN: { icon: LogIn, color: "text-purple-600", bg: "bg-purple-50" },
-  LOGOUT: { icon: LogOut, color: "text-gray-600", bg: "bg-gray-50" },
-  VIEW: { icon: Eye, color: "text-blue-600", bg: "bg-blue-50" },
-  EXPORT: { icon: Download, color: "text-indigo-600", bg: "bg-indigo-50" },
-  UPLOAD: { icon: Upload, color: "text-amber-600", bg: "bg-amber-50" },
-  VERIFY: { icon: UserCheck, color: "text-emerald-600", bg: "bg-emerald-50" },
-  BLOCK: { icon: Lock, color: "text-rose-600", bg: "bg-rose-50" },
-  ADD_BLACKLIST: { icon: Lock, color: "text-rose-600", bg: "bg-rose-50" },
-  REMOVE_BLACKLIST: { icon: Unlock, color: "text-emerald-600", bg: "bg-emerald-50" },
-  RESOLVE_REPORT: { icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50" },
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface AuditLog {
+  id:        number;
+  action:    string;
+  target:    string;
+  details?:  string;
+  createdAt: string;
+  admin?: {
+    id:    number;
+    name:  string;
+    email: string;
+  };
+}
+
+interface ActionMeta {
+  icon:  React.ElementType;
+  color: string;
+  bg:    string;
+  ring:  string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACTION CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ACTION_CONFIG: Record<string, ActionMeta> = {
+  CREATE:               { icon: Plus,        color: "text-emerald-700", bg: "bg-emerald-50",  ring: "ring-emerald-200" },
+  UPDATE:               { icon: Edit,        color: "text-blue-700",    bg: "bg-blue-50",     ring: "ring-blue-200"    },
+  DELETE:               { icon: Trash2,      color: "text-rose-700",    bg: "bg-rose-50",     ring: "ring-rose-200"    },
+  APPROVE:              { icon: CheckCircle, color: "text-emerald-700", bg: "bg-emerald-50",  ring: "ring-emerald-200" },
+  APPROVE_PROPERTY:     { icon: CheckCircle, color: "text-emerald-700", bg: "bg-emerald-50",  ring: "ring-emerald-200" },
+  APPROVE_VERIFICATION: { icon: UserCheck,   color: "text-emerald-700", bg: "bg-emerald-50",  ring: "ring-emerald-200" },
+  REJECT:               { icon: XCircle,     color: "text-rose-700",    bg: "bg-rose-50",     ring: "ring-rose-200"    },
+  REJECT_PROPERTY:      { icon: XCircle,     color: "text-rose-700",    bg: "bg-rose-50",     ring: "ring-rose-200"    },
+  REJECT_VERIFICATION:  { icon: XCircle,     color: "text-rose-700",    bg: "bg-rose-50",     ring: "ring-rose-200"    },
+  LOGIN:                { icon: LogIn,       color: "text-violet-700",  bg: "bg-violet-50",   ring: "ring-violet-200"  },
+  LOGOUT:               { icon: LogOut,      color: "text-gray-600",    bg: "bg-gray-100",    ring: "ring-gray-200"    },
+  VIEW:                 { icon: Eye,         color: "text-blue-700",    bg: "bg-blue-50",     ring: "ring-blue-200"    },
+  EXPORT:               { icon: Download,    color: "text-indigo-700",  bg: "bg-indigo-50",   ring: "ring-indigo-200"  },
+  UPLOAD:               { icon: Upload,      color: "text-amber-700",   bg: "bg-amber-50",    ring: "ring-amber-200"   },
+  VERIFY:               { icon: UserCheck,   color: "text-emerald-700", bg: "bg-emerald-50",  ring: "ring-emerald-200" },
+  BLOCK:                { icon: Lock,        color: "text-rose-700",    bg: "bg-rose-50",     ring: "ring-rose-200"    },
+  ADD_BLACKLIST:        { icon: Lock,        color: "text-rose-700",    bg: "bg-rose-50",     ring: "ring-rose-200"    },
+  REMOVE_BLACKLIST:     { icon: Unlock,      color: "text-emerald-700", bg: "bg-emerald-50",  ring: "ring-emerald-200" },
+  RESOLVE_REPORT:       { icon: CheckCircle, color: "text-emerald-700", bg: "bg-emerald-50",  ring: "ring-emerald-200" },
 };
 
-// Metric Card Component
-const MetricCard = ({ icon: Icon, label, value, change, color }: any) => (
-  <div className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-lg transition-all duration-300">
-    <div className="flex items-start justify-between">
-      <div className={`w-12 h-12 rounded-xl ${color.bg} flex items-center justify-center`}>
-        <Icon className={`w-6 h-6 ${color.text}`} />
-      </div>
-      {change && (
-        <span className={`text-xs font-medium ${change > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-          {change > 0 ? '+' : ''}{change}%
-        </span>
-      )}
+const DEFAULT_ACTION: ActionMeta = {
+  icon:  Activity,
+  color: "text-gray-600",
+  bg:    "bg-gray-100",
+  ring:  "ring-gray-200",
+};
+
+const getAction = (action: string): ActionMeta =>
+  ACTION_CONFIG[action] ?? DEFAULT_ACTION;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-GH", {
+    day:   "numeric",
+    month: "short",
+    year:  "numeric",
+  });
+
+const formatTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString("en-GH", {
+    hour:   "2-digit",
+    minute: "2-digit",
+  });
+
+const formatDateTime = (iso: string) =>
+  new Date(iso).toLocaleString("en-GH", {
+    day:    "numeric",
+    month:  "short",
+    year:   "numeric",
+    hour:   "2-digit",
+    minute: "2-digit",
+  });
+
+const getInitial = (name?: string) =>
+  name?.charAt(0).toUpperCase() ?? "A";
+
+const ITEMS_PER_PAGE = 20;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SKELETON
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Skeleton = ({ className }: { className?: string }) => (
+  <div className={`animate-pulse bg-gray-200 rounded ${className}`} />
+);
+
+const PageSkeleton = () => (
+  <div className="min-h-screen bg-gray-50 p-8 space-y-6">
+    <div className="space-y-2">
+      <Skeleton className="h-8 w-48" />
+      <Skeleton className="h-4 w-72" />
     </div>
-    <div className="mt-4">
-      <p className="text-sm text-gray-600">{label}</p>
-      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+    <div className="grid grid-cols-4 gap-4">
+      {[...Array(4)].map((_, i) => (
+        <Skeleton key={i} className="h-28 rounded-xl" />
+      ))}
+    </div>
+    <Skeleton className="h-14 rounded-xl" />
+    <div className="space-y-3">
+      {[...Array(8)].map((_, i) => (
+        <Skeleton key={i} className="h-16 rounded-xl" />
+      ))}
     </div>
   </div>
 );
 
-// Timeline View Component
-const TimelineView = ({ logs }: { logs: any[] }) => {
-  const groupedLogs = logs.reduce((groups: any, log: any) => {
-    const date = new Date(log.createdAt).toLocaleDateString('en-US', {
-      month: 'short', day: 'numeric', year: 'numeric'
-    });
-    if (!groups[date]) groups[date] = [];
-    groups[date].push(log);
-    return groups;
-  }, {});
+// ─────────────────────────────────────────────────────────────────────────────
+// METRIC CARD
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface MetricCardProps {
+  icon:    React.ElementType;
+  label:   string;
+  value:   string | number;
+  meta?:   string;
+  iconBg:  string;
+  iconColor: string;
+}
+
+const MetricCard = ({
+  icon: Icon,
+  label,
+  value,
+  meta,
+  iconBg,
+  iconColor,
+}: MetricCardProps) => (
+  <div className="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-md transition-shadow">
+    <div className={`w-11 h-11 rounded-xl ${iconBg} flex items-center justify-center mb-4`}>
+      <Icon className={`w-5 h-5 ${iconColor}`} />
+    </div>
+    <p className="text-2xl font-bold text-gray-900">{value}</p>
+    <p className="text-sm text-gray-500 mt-1">{label}</p>
+    {meta && <p className="text-xs text-gray-400 mt-0.5">{meta}</p>}
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACTION BADGE
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ActionBadge = ({ action }: { action: string }) => {
+  const meta    = getAction(action);
+  const Icon    = meta.icon;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold ring-1 ${meta.ring} ${meta.bg} ${meta.color}`}>
+      <Icon className="w-3 h-3" />
+      {action.replace(/_/g, " ")}
+    </span>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN AVATAR
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AdminAvatar = ({ name }: { name?: string }) => (
+  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+    {getInitial(name)}
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TABLE VIEW
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TableView = ({ logs }: { logs: AuditLog[] }) => (
+  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100 bg-gray-50">
+            {["Admin", "Action", "Target", "Details", "Time"].map((h) => (
+              <th
+                key={h}
+                className="text-left px-5 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider"
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {logs.map((log, i) => (
+            <tr
+              key={log.id ?? i}
+              className="hover:bg-gray-50/80 transition-colors group"
+            >
+              {/* Admin */}
+              <td className="px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <AdminAvatar name={log.admin?.name} />
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900 truncate">
+                      {log.admin?.name ?? "System"}
+                    </p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {log.admin?.email ?? "—"}
+                    </p>
+                  </div>
+                </div>
+              </td>
+
+              {/* Action */}
+              <td className="px-5 py-4">
+                <ActionBadge action={log.action} />
+              </td>
+
+              {/* Target */}
+              <td className="px-5 py-4">
+                <span className="font-mono text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-md">
+                  {log.target}
+                </span>
+              </td>
+
+              {/* Details */}
+              <td className="px-5 py-4 max-w-xs">
+                <p className="text-gray-500 text-sm truncate">
+                  {log.details ?? "—"}
+                </p>
+              </td>
+
+              {/* Time */}
+              <td className="px-5 py-4">
+                <div className="flex items-center gap-1.5 text-gray-400 text-xs whitespace-nowrap">
+                  <Clock className="w-3 h-3" />
+                  {formatDateTime(log.createdAt)}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIMELINE VIEW
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TimelineView = ({ logs }: { logs: AuditLog[] }) => {
+  const grouped = useMemo(() => {
+    return logs.reduce<Record<string, AuditLog[]>>((acc, log) => {
+      const key = formatDate(log.createdAt);
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(log);
+      return acc;
+    }, {});
+  }, [logs]);
 
   return (
-    <div className="space-y-6">
-      {Object.entries(groupedLogs).map(([date, dayLogs]: [string, any]) => (
-        <div key={date} className="relative">
-          <div className="sticky top-0 bg-gray-50/95 backdrop-blur-sm py-2 px-4 rounded-lg mb-4 border border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-900">{date}</h3>
+    <div className="space-y-8">
+      {Object.entries(grouped).map(([date, dayLogs]) => (
+        <div key={date}>
+          {/* Date header */}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-px flex-1 bg-gray-200" />
+            <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+              {date}
+            </span>
+            <div className="h-px flex-1 bg-gray-200" />
           </div>
+
+          {/* Logs for this day */}
           <div className="space-y-3">
-            {dayLogs.map((log: any, index: number) => {
-              const action = actionConfig[log.action] || { icon: Activity, color: "text-gray-600", bg: "bg-gray-50" };
-              const ActionIcon = action.icon;
+            {dayLogs.map((log, i) => {
+              const meta = getAction(log.action);
+              const Icon = meta.icon;
               return (
-                <div key={log.id || index} className="relative pl-8 pb-3">
-                  {index < dayLogs.length - 1 && (
-                    <div className="absolute left-3 top-6 bottom-0 w-px bg-gray-200" />
-                  )}
-                  <div className={`absolute left-0 top-1 w-6 h-6 rounded-full ${action.bg} flex items-center justify-center`}>
-                    <ActionIcon className={`w-3 h-3 ${action.color}`} />
+                <div
+                  key={log.id ?? i}
+                  className="flex gap-4 group"
+                >
+                  {/* Icon */}
+                  <div className="flex flex-col items-center">
+                    <div
+                      className={`w-9 h-9 rounded-xl ring-1 ${meta.ring} ${meta.bg} flex items-center justify-center flex-shrink-0`}
+                    >
+                      <Icon className={`w-4 h-4 ${meta.color}`} />
+                    </div>
+                    {i < dayLogs.length - 1 && (
+                      <div className="w-px flex-1 bg-gray-200 mt-2" />
+                    )}
                   </div>
-                  <div className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-all">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap mb-2">
-                          <span className="font-medium text-gray-900">{log.admin?.name}</span>
-                          <span className="text-gray-400">·</span>
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${action.bg} ${action.color}`}>
-                            {log.action}
-                          </span>
-                          <span className="text-gray-400">·</span>
-                          <span className="text-sm text-gray-500">{log.target}</span>
+
+                  {/* Content */}
+                  <div className="flex-1 pb-4">
+                    <div className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-sm transition-shadow">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <AdminAvatar name={log.admin?.name} />
+                            <span className="font-semibold text-gray-900 text-sm">
+                              {log.admin?.name ?? "System"}
+                            </span>
+                            <ActionBadge action={log.action} />
+                            <span className="font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                              {log.target}
+                            </span>
+                          </div>
+                          {log.details && (
+                            <p className="text-sm text-gray-500 mt-1 ml-10">
+                              {log.details}
+                            </p>
+                          )}
                         </div>
-                        {log.details && <p className="text-sm text-gray-600">{log.details}</p>}
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-gray-400 whitespace-nowrap">
-                        <Clock className="w-3 h-3" />
-                        <span>{new Date(log.createdAt).toLocaleTimeString()}</span>
+                        <div className="flex items-center gap-1 text-xs text-gray-400 whitespace-nowrap">
+                          <Clock className="w-3 h-3" />
+                          {formatTime(log.createdAt)}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -130,268 +364,380 @@ const TimelineView = ({ logs }: { logs: any[] }) => {
   );
 };
 
-// Table View Component
-const TableView = ({ logs }: { logs: any[] }) => (
-  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-gray-50 border-b border-gray-200">
-          <tr>
-            <th className="text-left px-6 py-4 font-semibold text-gray-600">Admin</th>
-            <th className="text-left px-6 py-4 font-semibold text-gray-600">Action</th>
-            <th className="text-left px-6 py-4 font-semibold text-gray-600">Target</th>
-            <th className="text-left px-6 py-4 font-semibold text-gray-600">Details</th>
-            <th className="text-left px-6 py-4 font-semibold text-gray-600">Timestamp</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {logs.map((log: any, index: number) => {
-            const action = actionConfig[log.action] || { icon: Activity, color: "text-gray-600", bg: "bg-gray-50" };
-            const ActionIcon = action.icon;
-            return (
-              <tr key={log.id || index} className="hover:bg-gray-50 transition-colors">
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                      {log.admin?.name?.charAt(0) || 'A'}
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">{log.admin?.name}</p>
-                      <p className="text-xs text-gray-400">{log.admin?.email}</p>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-6 h-6 rounded-full ${action.bg} flex items-center justify-center`}>
-                      <ActionIcon className={`w-3 h-3 ${action.color}`} />
-                    </div>
-                    <span className={`px-2 py-1 rounded-lg text-xs font-medium ${action.bg} ${action.color}`}>
-                      {log.action}
-                    </span>
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  <span className="text-gray-700">{log.target}</span>
-                </td>
-                <td className="px-6 py-4">
-                  <p className="text-gray-500 text-sm max-w-xs truncate">{log.details}</p>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-2 text-gray-400 text-xs whitespace-nowrap">
-                    <Clock className="w-3 h-3" />
-                    <span>{new Date(log.createdAt).toLocaleString()}</span>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+// ─────────────────────────────────────────────────────────────────────────────
+// PAGINATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface PaginationProps {
+  currentPage:  number;
+  totalPages:   number;
+  totalItems:   number;
+  onPrev:       () => void;
+  onNext:       () => void;
+  onPage:       (p: number) => void;
+}
+
+const Pagination = ({
+  currentPage,
+  totalPages,
+  totalItems,
+  onPrev,
+  onNext,
+  onPage,
+}: PaginationProps) => {
+  const pages = useMemo(() => {
+    const range: number[] = [];
+    const delta = 2;
+    const left  = Math.max(1, currentPage - delta);
+    const right = Math.min(totalPages, currentPage + delta);
+    for (let i = left; i <= right; i++) range.push(i);
+    return range;
+  }, [currentPage, totalPages]);
+
+  return (
+    <div className="flex items-center justify-between mt-6">
+      <p className="text-sm text-gray-500">
+        Page <span className="font-medium text-gray-900">{currentPage}</span> of{" "}
+        <span className="font-medium text-gray-900">{totalPages}</span> —{" "}
+        <span className="font-medium text-gray-900">{totalItems}</span> total logs
+      </p>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={onPrev}
+          disabled={currentPage === 1}
+          className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4 text-gray-600" />
+        </button>
+        {pages.map((p) => (
+          <button
+            key={p}
+            onClick={() => onPage(p)}
+            className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
+              p === currentPage
+                ? "bg-orange-600 text-white"
+                : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            {p}
+          </button>
+        ))}
+        <button
+          onClick={onNext}
+          disabled={currentPage === totalPages}
+          className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <ArrowRight className="w-4 h-4 text-gray-600" />
+        </button>
+      </div>
     </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMPTY STATE
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EmptyState = ({ hasFilters, onClear }: { hasFilters: boolean; onClear: () => void }) => (
+  <div className="bg-white rounded-2xl border border-gray-200 p-16 text-center">
+    <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+      <Activity className="w-8 h-8 text-gray-400" />
+    </div>
+    <h3 className="text-lg font-bold text-gray-900 mb-1">No logs found</h3>
+    <p className="text-gray-500 text-sm mb-6">
+      {hasFilters
+        ? "No logs match your current filters."
+        : "No audit logs available yet."}
+    </p>
+    {hasFilters && (
+      <button
+        onClick={onClear}
+        className="px-5 py-2.5 bg-orange-600 text-white text-sm font-semibold rounded-xl hover:bg-orange-700 transition-colors"
+      >
+        Clear filters
+      </button>
+    )}
   </div>
 );
 
-// Main Component
-const AdminAuditLogs = () => {
-  const { data: logs, isLoading, refetch } = useGetAuditLogsQuery();
-  const [searchTerm, setSearchTerm] = useState("");
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function AdminAuditLogs() {
+  const { data: rawData, isLoading, refetch } = useGetAuditLogsQuery({});
+
+  // Support both array response and PaginatedResponse shape
+  const logs: AuditLog[] = useMemo(() => {
+    if (!rawData) return [];
+    if (Array.isArray(rawData)) return rawData;
+    if (Array.isArray((rawData as any).data)) return (rawData as any).data;
+    return [];
+  }, [rawData]);
+
+  const [search,       setSearch]       = useState("");
   const [filterAction, setFilterAction] = useState("all");
-  const [filterAdmin, setFilterAdmin] = useState("all");
-  const [dateRange, setDateRange] = useState("all");
-  const [viewMode, setViewMode] = useState<"table" | "timeline">(
-    typeof window !== "undefined" && window.innerWidth < 768 ? "timeline" : "table"
-  );
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 20;
+  const [filterAdmin,  setFilterAdmin]  = useState("all");
+  const [dateRange,    setDateRange]    = useState("all");
+  const [viewMode,     setViewMode]     = useState<"table" | "timeline">("table");
+  const [page,         setPage]         = useState(1);
 
-  const filteredLogs = logs?.filter((log: any) => {
-    const matchesSearch =
-      log.admin?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.admin?.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.target?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.details?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesAction = filterAction === "all" || log.action === filterAction;
-    const matchesAdmin = filterAdmin === "all" || log.admin?.id === filterAdmin;
-    let matchesDate = true;
-    if (dateRange !== "all") {
-      const logDate = new Date(log.createdAt);
-      const now = new Date();
-      const days = parseInt(dateRange);
-      const cutoff = new Date(now.setDate(now.getDate() - days));
-      matchesDate = logDate >= cutoff;
-    }
-    return matchesSearch && matchesAction && matchesAdmin && matchesDate;
-  }) || [];
-
-  const sortedLogs = [...filteredLogs].sort((a, b) =>
-    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  // Derived filter options
+  const uniqueActions = useMemo<string[]>(
+    () => [...new Set(logs.map((l) => l.action))].sort(),
+    [logs]
   );
 
-  const totalPages = Math.ceil(sortedLogs.length / itemsPerPage);
-  const paginatedLogs = sortedLogs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const uniqueAdmins = useMemo(() => {
+    const map = new Map<number, { id: number; name: string }>();
+    logs.forEach((l) => {
+      if (l.admin) map.set(l.admin.id, l.admin);
+    });
+    return [...map.values()];
+  }, [logs]);
 
-  const uniqueActions = [...new Set(logs?.map((log: any) => log.action as string) || [])] as string[];
-  const uniqueAdmins = [...new Map(logs?.map((log: any) => [log.admin?.id, log.admin])).values()] as any[];
+  // Filtering
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return logs.filter((log) => {
+      const matchSearch =
+        !q ||
+        log.admin?.name?.toLowerCase().includes(q) ||
+        log.admin?.email?.toLowerCase().includes(q) ||
+        log.target?.toLowerCase().includes(q) ||
+        log.details?.toLowerCase().includes(q);
 
-  const totalActions = logs?.length || 0;
-  const uniqueAdminsCount = uniqueAdmins.length;
-  const todayActions = logs?.filter((log: any) => {
-    const today = new Date().toDateString();
-    return new Date(log.createdAt).toDateString() === today;
-  }).length || 0;
+      const matchAction =
+        filterAction === "all" || log.action === filterAction;
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-orange-200 rounded-full animate-spin border-t-orange-600" />
-            <Activity className="w-6 h-6 text-orange-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
-          </div>
-          <p className="text-gray-600 mt-4 font-medium">Loading audit logs...</p>
-          <p className="text-gray-400 text-sm mt-1">Please wait while we fetch the data</p>
-        </div>
-      </div>
-    );
-  }
+      const matchAdmin =
+        filterAdmin === "all" ||
+        String(log.admin?.id) === filterAdmin;
+
+      let matchDate = true;
+      if (dateRange !== "all") {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - parseInt(dateRange));
+        matchDate = new Date(log.createdAt) >= cutoff;
+      }
+
+      return matchSearch && matchAction && matchAdmin && matchDate;
+    });
+  }, [logs, search, filterAction, filterAdmin, dateRange]);
+
+  // Sort newest first
+  const sorted = useMemo(
+    () =>
+      [...filtered].sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() -
+          new Date(a.createdAt).getTime()
+      ),
+    [filtered]
+  );
+
+  const totalPages   = Math.max(1, Math.ceil(sorted.length / ITEMS_PER_PAGE));
+  const paginated    = sorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+  const hasFilters   = search !== "" || filterAction !== "all" || filterAdmin !== "all" || dateRange !== "all";
+
+  const clearFilters = () => {
+    setSearch("");
+    setFilterAction("all");
+    setFilterAdmin("all");
+    setDateRange("all");
+    setPage(1);
+  };
+
+  // Metrics
+  const todayStr     = new Date().toDateString();
+  const todayCount   = logs.filter((l) => new Date(l.createdAt).toDateString() === todayStr).length;
+  const adminCount   = uniqueAdmins.length;
+  const totalCount   = logs.length;
+
+  if (isLoading) return <PageSkeleton />;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
 
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Audit Logs</h1>
-              <p className="text-gray-500 mt-1">Complete history of all admin actions</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <button onClick={() => refetch()} className="p-2 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-                <RefreshCw className="w-5 h-5 text-gray-600" />
-              </button>
-              <button className="px-4 py-2 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors flex items-center gap-2">
-                <Download className="w-4 h-4 text-gray-600" />
-                <span className="text-sm font-medium text-gray-700">Export Logs</span>
-              </button>
-            </div>
+        {/* ── Header ── */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Audit Logs</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Complete history of all admin actions on AskDerek
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => refetch()}
+              className="p-2.5 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className="w-4 h-4 text-gray-600" />
+            </button>
+            <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700">
+              <Download className="w-4 h-4" />
+              Export
+            </button>
           </div>
         </div>
 
-        {/* Metrics */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <MetricCard icon={Activity} label="Total Actions" value={totalActions.toLocaleString()} change={12} color={{ bg: "bg-blue-50", text: "text-blue-600" }} />
-          <MetricCard icon={Users} label="Active Admins" value={uniqueAdminsCount} change={8} color={{ bg: "bg-emerald-50", text: "text-emerald-600" }} />
-          <MetricCard icon={Clock} label="Today's Actions" value={todayActions} change={-5} color={{ bg: "bg-amber-50", text: "text-amber-600" }} />
-          <MetricCard icon={Database} label="Data Retention" value="90 days" color={{ bg: "bg-purple-50", text: "text-purple-600" }} />
+        {/* ── Metrics ── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <MetricCard
+            icon={Activity}
+            label="Total Actions"
+            value={totalCount.toLocaleString()}
+            meta="All time"
+            iconBg="bg-blue-50"
+            iconColor="text-blue-600"
+          />
+          <MetricCard
+            icon={Users}
+            label="Active Admins"
+            value={adminCount}
+            meta="Unique admins"
+            iconBg="bg-emerald-50"
+            iconColor="text-emerald-600"
+          />
+          <MetricCard
+            icon={Clock}
+            label="Today"
+            value={todayCount}
+            meta="Actions today"
+            iconBg="bg-amber-50"
+            iconColor="text-amber-600"
+          />
+          <MetricCard
+            icon={Database}
+            label="Retention"
+            value="90 days"
+            meta="Data kept"
+            iconBg="bg-violet-50"
+            iconColor="text-violet-600"
+          />
         </div>
 
-        {/* Filters */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
-          <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+        {/* ── Filters ── */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-4">
+          <div className="flex flex-col lg:flex-row gap-3">
+            {/* Search */}
             <div className="flex-1 relative">
-              <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search by admin, target, or details..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                placeholder="Search admin, target, details..."
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
               />
             </div>
-            <div className="flex flex-wrap gap-3">
-              <select value={filterAction} onChange={(e) => setFilterAction(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500">
+
+            {/* Selects */}
+            <div className="flex flex-wrap gap-2 items-center">
+              <select
+                value={filterAction}
+                onChange={(e) => { setFilterAction(e.target.value); setPage(1); }}
+                className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+              >
                 <option value="all">All Actions</option>
-                {uniqueActions.map((action: string) => (
-                  <option key={action} value={action}>{action}</option>
+                {uniqueActions.map((a) => (
+                  <option key={a} value={a}>{a.replace(/_/g, " ")}</option>
                 ))}
               </select>
-              <select value={filterAdmin} onChange={(e) => setFilterAdmin(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500">
+
+              <select
+                value={filterAdmin}
+                onChange={(e) => { setFilterAdmin(e.target.value); setPage(1); }}
+                className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+              >
                 <option value="all">All Admins</option>
-                {uniqueAdmins.map((admin: any) => (
-                  <option key={admin?.id} value={admin?.id}>{admin?.name}</option>
+                {uniqueAdmins.map((a) => (
+                  <option key={a.id} value={String(a.id)}>{a.name}</option>
                 ))}
               </select>
-              <select value={dateRange} onChange={(e) => setDateRange(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500">
+
+              <select
+                value={dateRange}
+                onChange={(e) => { setDateRange(e.target.value); setPage(1); }}
+                className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+              >
                 <option value="all">All Time</option>
-                <option value="1">Last 24 Hours</option>
-                <option value="7">Last 7 Days</option>
-                <option value="30">Last 30 Days</option>
-                <option value="90">Last 90 Days</option>
+                <option value="1">Last 24h</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
               </select>
-              <div className="flex border border-gray-200 rounded-lg overflow-hidden">
-                <button onClick={() => setViewMode("table")} className={`p-2 transition-colors ${viewMode === "table" ? "bg-orange-50 text-orange-600" : "bg-white text-gray-600 hover:bg-gray-50"}`}>
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
+
+              {/* View toggle */}
+              <div className="flex border border-gray-200 rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setViewMode("table")}
+                  className={`p-2.5 transition-colors ${viewMode === "table" ? "bg-orange-50 text-orange-600" : "bg-white text-gray-500 hover:bg-gray-50"}`}
+                  title="Table view"
+                >
+                  <LayoutList className="w-4 h-4" />
                 </button>
-                <button onClick={() => setViewMode("timeline")} className={`p-2 transition-colors ${viewMode === "timeline" ? "bg-orange-50 text-orange-600" : "bg-white text-gray-600 hover:bg-gray-50"}`}>
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+                <button
+                  onClick={() => setViewMode("timeline")}
+                  className={`p-2.5 transition-colors ${viewMode === "timeline" ? "bg-orange-50 text-orange-600" : "bg-white text-gray-500 hover:bg-gray-50"}`}
+                  title="Timeline view"
+                >
+                  <Clock className="w-4 h-4" />
                 </button>
               </div>
+
+              {hasFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="px-3 py-2.5 text-sm font-medium text-rose-600 bg-rose-50 border border-rose-200 rounded-xl hover:bg-rose-100 transition-colors"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Results Summary */}
-        <div className="flex items-center justify-between mb-6">
-          <p className="text-sm text-gray-600">
-            Showing <span className="font-medium">{paginatedLogs.length}</span> of{" "}
-            <span className="font-medium">{filteredLogs.length}</span> logs
+        {/* ── Results summary ── */}
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-500">
+            Showing{" "}
+            <span className="font-medium text-gray-900">{paginated.length}</span>{" "}
+            of{" "}
+            <span className="font-medium text-gray-900">{filtered.length}</span>{" "}
+            logs
           </p>
-          <p className="text-sm text-gray-500">Last updated: {new Date().toLocaleTimeString()}</p>
+          <p className="text-xs text-gray-400">
+            Last refreshed {formatTime(new Date().toISOString())}
+          </p>
         </div>
 
-        {/* Logs Display */}
-        {filteredLogs.length === 0 ? (
-          <div className="bg-white rounded-2xl p-16 text-center border border-gray-200">
-            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Activity className="w-10 h-10 text-gray-400" />
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">No logs found</h3>
-            <p className="text-gray-500 mb-6">{searchTerm ? "Try adjusting your search filters" : "No audit logs available"}</p>
-            {searchTerm && (
-              <button onClick={() => { setSearchTerm(""); setFilterAction("all"); setFilterAdmin("all"); setDateRange("all"); }} className="px-6 py-3 bg-orange-600 text-white rounded-xl hover:bg-orange-700 transition-colors">
-                Clear Filters
-              </button>
-            )}
-          </div>
+        {/* ── Content ── */}
+        {paginated.length === 0 ? (
+          <EmptyState hasFilters={hasFilters} onClear={clearFilters} />
         ) : (
           <>
-            {viewMode === "table" ? <TableView logs={paginatedLogs} /> : <TimelineView logs={paginatedLogs} />}
+            {viewMode === "table" ? (
+              <TableView logs={paginated} />
+            ) : (
+              <TimelineView logs={paginated} />
+            )}
+
             {totalPages > 1 && (
-              <div className="mt-8 flex items-center justify-between">
-                <p className="text-sm text-gray-600">Page {currentPage} of {totalPages}</p>
-                <div className="flex gap-2">
-                  <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                    <ArrowLeft className="w-5 h-5 text-gray-600" />
-                  </button>
-                  {[...Array(Math.min(5, totalPages))].map((_, i) => {
-                    let pageNum;
-                    if (totalPages <= 5) pageNum = i + 1;
-                    else if (currentPage <= 3) pageNum = i + 1;
-                    else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
-                    else pageNum = currentPage - 2 + i;
-                    return (
-                      <button key={i} onClick={() => setCurrentPage(pageNum)} className={`w-10 h-10 rounded-lg text-sm font-medium transition-colors ${currentPage === pageNum ? "bg-orange-600 text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                  <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                    <ArrowRight className="w-5 h-5 text-gray-600" />
-                  </button>
-                </div>
-              </div>
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                totalItems={filtered.length}
+                onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+                onPage={(p) => setPage(p)}
+              />
             )}
           </>
         )}
       </div>
     </div>
   );
-};
-
-export default AdminAuditLogs;
+}
