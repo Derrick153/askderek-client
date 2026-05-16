@@ -42,7 +42,10 @@ const SingleListing = () => {
           <PropertyLocation propertyId={propertyId} />
         </div>
         <div className="order-1 md:order-2 md:w-96">
-          <ContactWidget onOpenModal={() => setIsModalOpen(true)} />
+          <ContactWidget 
+  onOpenModal={() => setIsModalOpen(true)} 
+  propertyId={propertyId}
+/>
           {property && (
             <div className="mt-6 sticky top-24">
               <ApplyButton property={property} />

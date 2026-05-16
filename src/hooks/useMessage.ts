@@ -20,18 +20,25 @@ import {
 } from "@/state/api";
 
 // ── USER INBOX HOOK ───────────────────────────────────────────────────────────
+// Identity comes from the Clerk JWT attached by prepareHeaders in api.ts.
+// No userId argument needed — backend reads from req.auth.userId.
+// getUserThreads is typed as build.query<MessageThread[], void> in api.ts —
+// RTK Query returns the array directly, no unwrapping needed.
 
 export const useMessageInbox = () => {
-  const { data: threads, isLoading, refetch } = useGetUserThreadsQuery();
+  const { data: threads, isLoading, refetch } = useGetUserThreadsQuery(undefined, {
+  pollingInterval: 5000,
+});
 
-  // Unread count — threads where enquiry has not been read
-  // and has not been archived
-  const unreadCount = threads?.filter(
-    (t: any) => !t.isRead && !t.isArchived
-  ).length ?? 0;
+  // threads is MessageThread[] directly — RTK Query unwraps the response.
+  // Default to empty array while loading or on error.
+  const threadList  = threads ?? [];
+  const unreadCount = threadList.filter(
+    (t) => !t.isRead && !t.isArchived
+  ).length;
 
   return {
-    threads:     threads ?? [],
+    threads: threadList,
     unreadCount,
     isLoading,
     refetch,
@@ -45,14 +52,20 @@ export const useMessageThread = (enquiryId: number) => {
     data:      messages,
     isLoading,
     refetch,
-  } = useGetThreadQuery(enquiryId);
-
+  } = useGetThreadQuery(enquiryId, {
+    // Prevents a request to GET /api/messages/thread/0 when enquiryId
+    // is not yet available — e.g. while the page is still loading.
+    skip:            !enquiryId,
+    pollingInterval: 5000,
+  });
   const [sendMessage, { isLoading: isSending }] = useSendMessageMutation();
 
   const [input, setInput] = useState("");
 
-  // Returns true on success false on failure
-  // Caller can use return value to trigger UI feedback
+  // Returns true on success, false on failure.
+  // Caller can use return value to trigger UI feedback.
+  // No manual refetch needed — sendMessage has invalidatesTags: ["Messages"]
+  // in api.ts which automatically triggers a refetch of the active thread.
   const handleSend = useCallback(async (): Promise<boolean> => {
     const content = input.trim();
     if (!content) return false;
@@ -60,13 +73,12 @@ export const useMessageThread = (enquiryId: number) => {
     try {
       await sendMessage({ enquiryId, content }).unwrap();
       setInput("");
-      refetch();
       return true;
     } catch {
       // Error toast handled by withToast in api.ts
       return false;
     }
-  }, [enquiryId, input, sendMessage, refetch]);
+  }, [enquiryId, input, sendMessage]);
 
   // Enter sends — Shift+Enter adds new line
   const handleKeyPress = useCallback(
@@ -79,7 +91,6 @@ export const useMessageThread = (enquiryId: number) => {
     [handleSend]
   );
 
-  // Visible messages — redacted ones show placeholder in component
   const visibleMessages = messages ?? [];
 
   const redactedCount = messages?.filter(
@@ -100,6 +111,7 @@ export const useMessageThread = (enquiryId: number) => {
 };
 
 // ── ADMIN MESSAGE HOOK ────────────────────────────────────────────────────────
+
 export const useAdminMessage = (params?: { page?: number; limit?: number }) => {
   const { data, isLoading, refetch } = useGetAllThreadsAdminQuery(params ?? {});
 
@@ -107,13 +119,15 @@ export const useAdminMessage = (params?: { page?: number; limit?: number }) => {
 
   const raw = data as any;
 
-  const handleRedact = async (data: {
+  // Renamed parameter from `data` to `payload` — avoids shadowing the outer
+  // `data` variable from useGetAllThreadsAdminQuery above.
+  const handleRedact = async (payload: {
     messageId:    number;
     redactReason: string;
     adminDbId:    number;
   }): Promise<{ success: boolean; error?: string }> => {
     try {
-      await redactMessage(data).unwrap();
+      await redactMessage(payload).unwrap();
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error?.message };

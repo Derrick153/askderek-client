@@ -155,6 +155,8 @@ export interface MessageThread {
   lastAt:       ISODateTime;
   unreadCount:  number;
   participants: string[];
+  isRead:       boolean;
+  isArchived:   boolean;
 }
 
 export interface BookingProperty {
@@ -516,15 +518,10 @@ export const api = createApi({
 
   baseQuery: fetchBaseQuery({
     baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
+
     prepareHeaders: async (headers) => {
       if (typeof window === "undefined") return headers;
       try {
-        /**
-         * getToken() resolves immediately when the session is ready and returns
-         * null when there is no session. Polling here blocks every API call for
-         * up to 1.5 s when Clerk is slow — that belongs at the auth-gate
-         * component level, not in the fetch layer.
-         */
         const token: string | null =
           (await (window as any).Clerk?.session?.getToken()) ?? null;
         if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -1421,8 +1418,8 @@ export const api = createApi({
       },
     }),
 
-    getUserThreads: build.query<MessageThread[], void>({
-      query: () => "messages/threads/my",
+   getUserThreads: build.query<MessageThread[], void>({
+  query: () => "messages/threads/my",
       providesTags: ["Messages"],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, { error: "Failed to load threads." });

@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState }  from "react";
+import { useRouter }         from "next/navigation";
+import { useUser }           from "@clerk/nextjs";
 import {
   Phone,
   MessageCircle,
@@ -12,13 +13,12 @@ import {
   Check,
   Shield,
   Star,
+  Send,
+  X,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import {
-  useGetAuthUserQuery,
-  useGetPropertyQuery,
-} from "@/state/api";
+import { Button }                                         from "@/components/ui/button";
+import { useGetPropertyQuery, useCreateEnquiryMutation } from "@/state/api";
 
 interface ContactWidgetProps {
   onOpenModal: () => void;
@@ -29,31 +29,110 @@ const ContactWidget = ({
   onOpenModal,
   propertyId,
 }: ContactWidgetProps) => {
-  const router = useRouter();
-  const { data: authUser } = useGetAuthUserQuery();
+  const router              = useRouter();
+  // isLoaded tells us when Clerk has finished resolving the session.
+  // user is null until isLoaded is true — never treat null as "not signed in"
+  // without checking isLoaded first, or signed-in users get wrongly redirected.
+  const { user, isLoaded }  = useUser();
+  const [createEnquiry]     = useCreateEnquiryMutation();
 
   const { data: property } = useGetPropertyQuery(propertyId ?? 0, {
     skip: !propertyId,
   });
 
-  const [showCopied, setShowCopied] = useState(false);
+  // ── UI state ──────────────────────────────────────────────────────────────
+  const [showCopied,      setShowCopied]      = useState(false);
+  const [showEnquiryForm, setShowEnquiryForm] = useState(false);
+  const [enquiryMessage,  setEnquiryMessage]  = useState("");
+  const [enquirySending,  setEnquirySending]  = useState(false);
+  const [enquirySent,     setEnquirySent]     = useState(false);
+  const [enquiryError,    setEnquiryError]    = useState("");
 
-  // Real data from API
-  const phoneNumber = property?.manager?.phoneNumber || "0558153803";
-  const managerName = property?.manager?.name || "Property Manager";
-  const managerRating = 4.8;
+  // ── Real data from API ────────────────────────────────────────────────────
+  const phoneNumber     = property?.manager?.phoneNumber || "0558153803";
+  const managerName     = property?.manager?.name        || "Property Manager";
+  const managerRating   = 4.8;
   const avgResponseTime = "20min";
 
-  /** Handle application - requires auth */
-  const handleApplyClick = () => {
-    if (authUser) {
-      onOpenModal();
-    } else {
-      router.push(`/sign-in?redirect_url=${window.location.pathname}`);
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  const redirectToSignIn = () =>
+    router.push(`/sign-in?redirect_url=${window.location.pathname}`);
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  const handleEnquirySubmit = async () => {
+    if (!enquiryMessage.trim()) {
+      setEnquiryError("Please type a message before sending.");
+      return;
+    }
+    if (!propertyId) {
+      setEnquiryError("Property not found. Please refresh and try again.");
+      return;
+    }
+
+    // Guard: wait for Clerk to finish loading before checking auth.
+    // Without this, isLoaded=false gives user=null even when signed in.
+    if (!isLoaded) return;
+
+    // Identity comes from Clerk session — JWT attached by prepareHeaders.
+    // No userId passed in body — backend reads from req.auth.userId.
+    if (!user) {
+      redirectToSignIn();
+      return;
+    }
+
+    setEnquiryError("");
+    setEnquirySending(true);
+    try {
+      await createEnquiry({
+        propertyId,
+        message:     enquiryMessage.trim(),
+        enquiryType: "MESSAGE",
+      }).unwrap();
+
+      setEnquirySent(true);
+      setEnquiryMessage("");
+      setShowEnquiryForm(false);
+    } catch (e: any) {
+      // Backend returns 400 when buyer already has an active enquiry.
+      // Show the success/sent state rather than an error — cleaner UX.
+      if (e?.data?.message?.includes("already have an active enquiry")) {
+        setEnquirySent(true);
+        setShowEnquiryForm(false);
+        return;
+      }
+      const msg =
+        e?.data?.message ||
+        "Failed to send enquiry. Please try again.";
+      setEnquiryError(msg);
+      console.error("[ContactWidget] Enquiry failed:", e);
+    } finally {
+      setEnquirySending(false);
     }
   };
 
-  /** Direct communication - no auth needed */
+  const handleEnquiryOpen = () => {
+    // Guard: don't act until Clerk has resolved the session
+    if (!isLoaded) return;
+    if (user) {
+      setShowEnquiryForm(true);
+      setEnquiryError("");
+    } else {
+      redirectToSignIn();
+    }
+  };
+
+  const handleApplyClick = () => {
+    // Guard: don't act until Clerk has resolved the session
+    if (!isLoaded) return;
+    if (user) {
+      onOpenModal();
+    } else {
+      redirectToSignIn();
+    }
+  };
+
   const handleCallClick = () => {
     window.location.href = `tel:${phoneNumber}`;
   };
@@ -62,10 +141,8 @@ const ContactWidget = ({
     const formattedNumber = phoneNumber.startsWith("0")
       ? "233" + phoneNumber.slice(1)
       : phoneNumber;
-
     const propertyName = property?.name || "this property";
     const message = `Hello! I'm interested in ${propertyName}. Is it still available?`;
-
     window.open(
       `https://wa.me/${formattedNumber}?text=${encodeURIComponent(message)}`,
       "_blank"
@@ -82,9 +159,12 @@ const ContactWidget = ({
     }
   };
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <div className="bg-white border-2 border-gray-200 rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300">
-      {/* Premium Header */}
+
+      {/* ── Header ── */}
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 p-5 text-white">
         <div className="flex items-start justify-between mb-3">
           <div className="flex-1">
@@ -100,7 +180,6 @@ const ContactWidget = ({
           </div>
         </div>
 
-        {/* Performance Stats */}
         <div className="flex items-center gap-3 pt-3 border-t border-white/10">
           <div className="flex items-center gap-1">
             <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
@@ -109,13 +188,16 @@ const ContactWidget = ({
           <div className="h-3 w-px bg-white/20" />
           <div className="flex items-center gap-1.5">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-            <span className="text-xs text-gray-300">Usually responds in {avgResponseTime}</span>
+            <span className="text-xs text-gray-300">
+              Usually responds in {avgResponseTime}
+            </span>
           </div>
         </div>
       </div>
 
       <div className="p-5 space-y-3.5">
-        {/* Phone Number Section */}
+
+        {/* ── Phone Number ── */}
         <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-4">
           <div className="flex justify-between items-center mb-2">
             <span className="text-xs font-bold text-green-900 uppercase tracking-wide">
@@ -129,9 +211,7 @@ const ContactWidget = ({
             )}
           </div>
 
-          <p className="text-2xl font-bold text-green-800 mb-3">
-            {phoneNumber}
-          </p>
+          <p className="text-2xl font-bold text-green-800 mb-3">{phoneNumber}</p>
 
           <div className="flex gap-2">
             <Button
@@ -142,7 +222,6 @@ const ContactWidget = ({
               <Phone className="w-4 h-4 mr-1.5" />
               Call Now
             </Button>
-
             <Button
               onClick={handleCopyNumber}
               size="sm"
@@ -155,45 +234,143 @@ const ContactWidget = ({
           </div>
         </div>
 
-        {/* WhatsApp - Primary CTA (No Auth Required) */}
+        {/* ── WhatsApp ── */}
         <Button
           onClick={handleWhatsAppClick}
-          className="w-full bg-[#25D366] hover:bg-[#20BA5A] text-white font-semibold h-13 rounded-xl shadow-md hover:shadow-lg transition-all duration-300"
+          className="w-full bg-[#25D366] hover:bg-[#20BA5A] text-white font-semibold h-12 rounded-xl shadow-md hover:shadow-lg transition-all duration-300"
         >
           <MessageCircle className="w-5 h-5 mr-2" />
           Chat on WhatsApp
-          <span className="ml-2 text-xs bg-white/20 px-2 py-0.5 rounded-full">Instant</span>
+          <span className="ml-2 text-xs bg-white/20 px-2 py-0.5 rounded-full">
+            Instant
+          </span>
         </Button>
 
-        {/* Formal Application (Auth Required) */}
+        {/* ── Enquire Now — Platform Messaging ── */}
+        {enquirySent ? (
+          <div className="w-full bg-green-50 border-2 border-green-200 rounded-xl p-4 text-center">
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <Check className="w-5 h-5 text-green-600" />
+              <p className="text-green-700 font-bold text-sm">Enquiry Sent!</p>
+            </div>
+            <p className="text-green-600 text-xs">
+              Check your messages to continue the conversation.
+            </p>
+            <button
+              onClick={() => router.push("/tenants/messages")}
+              className="mt-2 text-xs text-orange-600 font-semibold underline underline-offset-2"
+            >
+              Go to Messages →
+            </button>
+          </div>
+
+        ) : showEnquiryForm ? (
+          <div className="border-2 border-orange-200 rounded-xl p-4 space-y-3 bg-orange-50/30">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-bold text-gray-800">Send Enquiry</p>
+              <button
+                onClick={() => {
+                  setShowEnquiryForm(false);
+                  setEnquiryError("");
+                  setEnquiryMessage("");
+                }}
+                className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+
+            <textarea
+              value={enquiryMessage}
+              onChange={(e) => {
+                setEnquiryMessage(e.target.value);
+                if (enquiryError) setEnquiryError("");
+              }}
+              placeholder="Hello, I am interested in this property. Is it still available?"
+              className="w-full border-2 border-orange-200 rounded-xl p-3 text-sm resize-none h-24 focus:outline-none focus:border-orange-500 bg-white transition-colors"
+            />
+
+            {enquiryError && (
+              <p className="text-xs text-red-600 font-medium">{enquiryError}</p>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                onClick={() => {
+                  setShowEnquiryForm(false);
+                  setEnquiryError("");
+                  setEnquiryMessage("");
+                }}
+                variant="outline"
+                className="flex-1 h-10 rounded-xl border-2 text-sm"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleEnquirySubmit}
+                disabled={enquirySending || !enquiryMessage.trim()}
+                className="flex-1 h-10 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {enquirySending ? (
+                  <span className="flex items-center gap-2">
+                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Sending...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <Send className="w-3.5 h-3.5" />
+                    Send Enquiry
+                  </span>
+                )}
+              </Button>
+            </div>
+          </div>
+
+        ) : (
+          <Button
+            onClick={handleEnquiryOpen}
+            // Visually disabled while Clerk is still resolving the session
+            disabled={!isLoaded}
+            className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold h-12 rounded-xl shadow-md transition-all duration-300 disabled:opacity-70"
+          >
+            <MessageCircle className="w-5 h-5 mr-2" />
+            Enquire Now
+            <span className="ml-2 text-xs bg-white/20 px-2 py-0.5 rounded-full">
+              Protected
+            </span>
+          </Button>
+        )}
+
+        {/* ── Formal Application ── */}
         <Button
           onClick={handleApplyClick}
-          className="w-full bg-gray-900 hover:bg-black text-white font-semibold h-13 rounded-xl shadow-md transition-all duration-300"
+          disabled={!isLoaded}
+          className="w-full bg-gray-900 hover:bg-black text-white font-semibold h-12 rounded-xl shadow-md transition-all duration-300 disabled:opacity-70"
         >
           <Calendar className="w-4 h-4 mr-2" />
-          {authUser ? "Submit Application" : "Sign In to Apply"}
+          {isLoaded
+            ? user
+              ? "Submit Application"
+              : "Sign In to Apply"
+            : "Loading..."}
         </Button>
 
-        {/* Viewing Hours */}
+        {/* ── Viewing Hours ── */}
         <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-3.5">
           <div className="flex items-center gap-2 mb-2">
             <div className="bg-blue-600 p-1.5 rounded-lg">
               <Clock className="w-3.5 h-3.5 text-white" />
             </div>
-            <span className="font-bold text-sm text-blue-900">
-              Viewing Hours
-            </span>
+            <span className="font-bold text-sm text-blue-900">Viewing Hours</span>
           </div>
           <div className="flex items-center gap-2 mb-1">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
             <span className="text-xs font-semibold text-blue-900">Available Today</span>
           </div>
-          <p className="text-xs text-blue-700">
-            Monday – Sunday, 8:00 AM – 6:00 PM
-          </p>
+          <p className="text-xs text-blue-700">Monday – Sunday, 8:00 AM – 6:00 PM</p>
         </div>
 
-        {/* Property Location */}
+        {/* ── Property Location ── */}
         {property?.location && (
           <div className="bg-gradient-to-br from-orange-50 to-amber-50 border-2 border-orange-200 rounded-xl p-3.5">
             <div className="flex gap-2.5">
@@ -213,7 +390,10 @@ const ContactWidget = ({
                   className="w-full border-2 border-orange-400 text-orange-700 hover:bg-orange-100 h-8 rounded-lg text-xs font-medium"
                   onClick={() => {
                     const { latitude, longitude } = property.location.coordinates;
-                    window.open(`https://www.google.com/maps?q=${latitude},${longitude}`, '_blank');
+                    window.open(
+                      `https://www.google.com/maps?q=${latitude},${longitude}`,
+                      "_blank"
+                    );
                   }}
                 >
                   <MapPin className="w-3 h-3 mr-1.5" />
@@ -224,7 +404,7 @@ const ContactWidget = ({
           </div>
         )}
 
-        {/* Trust Footer */}
+        {/* ── Trust Footer ── */}
         <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 text-center">
           <p className="text-xs text-gray-600 mb-1">
             <span className="font-semibold">Languages:</span> English • Twi • Ga

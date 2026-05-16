@@ -20,6 +20,11 @@ import {
   X,
   CreditCard,
   BarChart3,
+  MessageSquare,
+  ClipboardList,
+  CalendarCheck,
+  GraduationCap,
+  Trash2,
 } from "lucide-react";
 import { NAVBAR_HEIGHT } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -47,97 +52,151 @@ const AppSidebar = ({ userType }: AppSidebarProps) => {
 
   const navLinks =
     userType === "manager"
-      ? [
-          {
-            icon:  Building,
-            label: "Properties",
-            href:  "/managers/properties",
-          },
-          {
-            icon:  FileText,
-            label: "Applications",
-            href:  "/managers/applications",
-            badge: pendingCount > 0 ? pendingCount : undefined,
-          },
-          {
-            icon:  CreditCard,
-            label: "Payments",
-            href:  "/managers/payments",
-          },
-          {
-            icon:  Shield,
-            label: "Get Verified",
-            href:  "/managers/verification",
-          },
-          {
-            icon:  Settings,
-            label: "Settings",
-            href:  "/managers/settings",
-          },
-        ]
+  ? [
+      {
+        icon:  Building,
+        label: "Properties",
+        href:  "/managers/properties",
+      },
+      {
+        icon:  FileText,
+        label: "Applications",
+        href:  "/managers/applications",
+        badge: pendingCount > 0 ? pendingCount : undefined,
+      },
+      {
+        icon:  MessageSquare,
+        label: "Messages",
+        href:  "/managers/messages",
+      },
+      {
+        icon:  ClipboardList,
+        label: "Enquiries",
+        href:  "/managers/enquiries",
+      },
+      {
+        icon:  CalendarCheck,
+        label: "Bookings",
+        href:  "/managers/bookings",
+      },
+      {
+        icon:  GraduationCap,
+        label: "Hostel",
+        href:  "/managers/hostel",
+      },
+      {
+        icon:  CreditCard,
+        label: "Payments",
+        href:  "/managers/payments",
+      },
+      {
+        icon:  Shield,
+        label: "Get Verified",
+        href:  "/managers/verification",
+      },
+      {
+        icon:  Settings,
+        label: "Settings",
+        href:  "/managers/settings",
+      },
+    ]
       : userType === "tenant"
-      ? [
-          {
-            icon:  Heart,
-            label: "Favorites",
-            href:  "/tenants/favorites",
-          },
-          {
-            icon:  FileText,
-            label: "Applications",
-            href:  "/tenants/applications",
-          },
-          {
-            icon:  Home,
-            label: "Residences",
-            href:  "/tenants/residences",
-          },
-          {
-            icon:  CreditCard,
-            label: "Payments",
-            href:  "/tenants/payments",
-          },
-          {
-            icon:  Settings,
-            label: "Settings",
-            href:  "/tenants/settings",
-          },
-        ]
+  ? [
+      {
+        icon:  Heart,
+        label: "Favorites",
+        href:  "/tenants/favorites",
+      },
+      {
+        icon:  FileText,
+        label: "Applications",
+        href:  "/tenants/applications",
+      },
+      {
+        icon:  Home,
+        label: "Residences",
+        href:  "/tenants/residences",
+      },
+      {
+        icon:  MessageSquare,
+        label: "Messages",
+        href:  "/tenants/messages",
+      },
+      {
+        icon:  CalendarCheck,
+        label: "Bookings",
+        href:  "/tenants/bookings",
+      },
+      {
+        icon:  CreditCard,
+        label: "Payments",
+        href:  "/tenants/payments",
+      },
+      {
+        icon:  Settings,
+        label: "Settings",
+        href:  "/tenants/settings",
+      },
+    ]
       : userType === "admin"
-      ? [
-          {
-            icon:  Building,
-            label: "Properties",
-            href:  "/admin/properties",
-          },
-          {
-            icon:  Shield,
-            label: "Verifications",
-            href:  "/admin/verifications",
-          },
-          {
-            icon:  CreditCard,
-            label: "Payments",
-            href:  "/admin/payments",
-          },
-          {
-            icon:  BarChart3,
-            label: "Dashboard",
-            href:  "/admin/dashboard",
-          },
-          {
-            icon:  FileText,
-            label: "Audit Logs",
-            href:  "/admin/audit-logs",
-          },
-          {
-            icon:  Settings,
-            label: "Settings",
-            href:  "/admin/users",
-          },
-        ]
-      : [];
-
+  ? [
+      {
+        icon:  Building,
+        label: "Properties",
+        href:  "/admin/properties",
+      },
+      {
+        icon:  MessageSquare,
+        label: "Messages",
+        href:  "/admin/messages",
+      },
+      {
+        icon:  ClipboardList,
+        label: "Enquiries",
+        href:  "/admin/enquiries",
+      },
+      {
+        icon:  CalendarCheck,
+        label: "Bookings",
+        href:  "/admin/bookings",
+      },
+      {
+        icon:  GraduationCap,
+        label: "Schools",
+        href:  "/admin/schools",
+      },
+      {
+        icon:  Trash2,
+        label: "Deleted",
+        href:  "/admin/deleted",
+      },
+      {
+        icon:  Shield,
+        label: "Verifications",
+        href:  "/admin/verifications",
+      },
+      {
+        icon:  CreditCard,
+        label: "Payments",
+        href:  "/admin/payments",
+      },
+      {
+        icon:  BarChart3,
+        label: "Dashboard",
+        href:  "/admin/dashboard",
+      },
+      {
+        icon:  FileText,
+        label: "Audit Logs",
+        href:  "/admin/audit-logs",
+      },
+      {
+        icon:  Settings,
+        label: "Settings",
+        href:  "/admin/users",
+      },
+    ]
+  : [];
   return (
     <Sidebar
       collapsible="icon"
