@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useRef, useState } from "react";
 import Link from "next/link";
@@ -6,49 +6,15 @@ import Image from "next/image";
 import { MapPin, Bed, Bath, ArrowRight, ChevronLeft, ChevronRight, CheckCircle } from "lucide-react";
 import { useGetPropertiesQuery } from "@/state/api";
 import { Property } from "@/types/prismaTypes";
+import PropertyTypeBadge from "@/components/PropertyTypeBadge";
+import PriceDisplay      from "@/components/PriceDisplay";
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    HELPERS
-───────────────────────────────────────────── */
-const TYPE_LABEL: Record<string, string> = {
-  Rooms:      "For Rent",
-  Apartment:  "Apartment",
-  Villa:      "Villa",
-  Townhouse:  "Townhouse",
-  Cottage:    "Cottage",
-  Tinyhouse:  "Tiny House",
-  rent:       "For Rent",
-  sale:       "For Sale",
-  shortStay:  "Short Stay",
-  land:       "Land",
-};
-
-const TYPE_COLOR: Record<string, string> = {
-  Rooms:      "bg-blue-100 text-blue-700",
-  Apartment:  "bg-blue-100 text-blue-700",
-  Villa:      "bg-purple-100 text-purple-700",
-  Townhouse:  "bg-green-100 text-green-700",
-  Cottage:    "bg-amber-100 text-amber-700",
-  Tinyhouse:  "bg-orange-100 text-orange-700",
-  rent:       "bg-blue-100 text-blue-700",
-  sale:       "bg-green-100 text-green-700",
-  shortStay:  "bg-purple-100 text-purple-700",
-  land:       "bg-amber-100 text-amber-700",
-};
-
-function formatPrice(price: number, type: string): string {
-  const formatted = new Intl.NumberFormat("en-GH", {
-    style: "currency",
-    currency: "GHS",
-    maximumFractionDigits: 0,
-  }).format(price);
-  const isMonthly = !["sale", "Sale", "land", "Land"].includes(type);
-  return isMonthly ? `${formatted}/mo` : formatted;
-}
-
-/* ─────────────────────────────────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    SKELETON CARD
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function SkeletonCard() {
   return (
     <div className="flex-shrink-0 w-[272px] rounded-2xl overflow-hidden border border-gray-100 bg-white shadow-sm">
@@ -66,17 +32,15 @@ function SkeletonCard() {
   );
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    PROPERTY CARD
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function PropertyCard({ property }: { property: Property }) {
   const [imgError, setImgError] = useState(false);
 
   const photo = property.photoUrls?.[0];
   const location = property.location as any;
   const locationStr = [location?.area, location?.city].filter(Boolean).join(", ");
-  const typeLabel = TYPE_LABEL[property.propertyType] ?? property.propertyType;
-  const typeColor = TYPE_COLOR[property.propertyType] ?? "bg-gray-100 text-gray-700";
   const isLand = property.propertyType.toLowerCase() === "land";
 
   return (
@@ -90,7 +54,7 @@ function PropertyCard({ property }: { property: Property }) {
         transition-all duration-200 hover:-translate-y-1
       "
     >
-      {/* ── Image ── */}
+      {/* â”€â”€ Image â”€â”€ */}
       <div className="relative h-[172px] bg-gray-100 overflow-hidden">
         {photo && !imgError ? (
           <Image
@@ -103,14 +67,12 @@ function PropertyCard({ property }: { property: Property }) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-50 to-gray-100">
-            <span className="text-4xl">🏠</span>
+            <span className="text-4xl">ðŸ </span>
           </div>
         )}
 
         {/* Type badge */}
-        <span className={`absolute top-3 left-3 px-2.5 py-1 rounded-full text-[11px] font-bold ${typeColor}`}>
-          {typeLabel}
-        </span>
+        <PropertyTypeBadge listingType={property.listingType ?? "FOR_RENT"} className="absolute top-3 left-3" />
 
         {/* Verified badge */}
         <span className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 backdrop-blur-sm text-[10px] font-bold text-green-700 shadow-sm">
@@ -119,7 +81,7 @@ function PropertyCard({ property }: { property: Property }) {
         </span>
       </div>
 
-      {/* ── Details ── */}
+      {/* â”€â”€ Details â”€â”€ */}
       <div className="p-4">
         {/* Name */}
         <h3 className="text-[14px] font-bold text-gray-900 leading-snug truncate mb-1 group-hover:text-orange-600 transition-colors">
@@ -132,7 +94,7 @@ function PropertyCard({ property }: { property: Property }) {
           <span className="text-[12px] text-gray-500 truncate">{locationStr}</span>
         </div>
 
-        {/* Beds / Baths — hidden for land */}
+        {/* Beds / Baths â€” hidden for land */}
         {!isLand && (
           <div className="flex items-center gap-3 mb-3">
             {property.beds > 0 && (
@@ -151,21 +113,19 @@ function PropertyCard({ property }: { property: Property }) {
         )}
 
         {/* Price */}
-        <p className="text-[16px] font-extrabold text-orange-600">
-          {formatPrice(property.pricePerMonth, property.propertyType)}
-        </p>
+        <PriceDisplay listingType={property.listingType ?? "FOR_RENT"} pricePerMonth={property.pricePerMonth} askingPrice={property.askingPrice} size="md" />
       </div>
     </Link>
   );
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    FEATURED PROPERTIES
    - Fetches real approved properties from your backend
    - Replaces old FeaturesSection.tsx
    - Place at: src/app/(nondashboard)/landing/FeaturedProperties.tsx
    - Import in page.tsx as: import FeaturedProperties from "./FeaturedProperties"
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 export default function FeaturedProperties() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -186,7 +146,7 @@ export default function FeaturedProperties() {
     <section className="py-14 px-4 sm:px-6 lg:px-8 bg-white">
       <div className="max-w-7xl mx-auto">
 
-        {/* ── Header ── */}
+        {/* â”€â”€ Header â”€â”€ */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <p className="text-[12px] font-bold text-orange-600 uppercase tracking-widest mb-1">
@@ -198,7 +158,7 @@ export default function FeaturedProperties() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Scroll controls — desktop only */}
+            {/* Scroll controls â€” desktop only */}
             <div className="hidden sm:flex items-center gap-2">
               <button
                 onClick={() => scroll("left")}
@@ -226,7 +186,7 @@ export default function FeaturedProperties() {
           </div>
         </div>
 
-        {/* ── Cards ── */}
+        {/* â”€â”€ Cards â”€â”€ */}
         <div
           ref={scrollRef}
           className="flex gap-4 overflow-x-auto pb-2 scroll-smooth"
@@ -243,3 +203,7 @@ export default function FeaturedProperties() {
     </section>
   );
 }
+
+
+
+
