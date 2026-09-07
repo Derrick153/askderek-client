@@ -2,9 +2,11 @@
 
 import { useUser }         from "@clerk/nextjs";
 import { useGuestBooking } from "@/hooks/useBooking";
+import { useGetStudentBookingsQuery, type SemesterPlan } from "@/state/api";
 import {
   Calendar, CheckCircle, Clock, XCircle,
   AlertCircle, ArrowRight, RefreshCw, MapPin,
+  GraduationCap, BedDouble,
 } from "lucide-react";
 import type { Booking } from "@/state/api";
 
@@ -13,11 +15,18 @@ const Skeleton = ({ className }: { className?: string }) => (
 );
 
 const STATUS_CFG: Record<string, { label: string; icon: React.ElementType; bg: string; text: string }> = {
-  CONFIRMED:   { label: "Confirmed",   icon: Clock,        bg: "bg-blue-50",    text: "text-blue-700"    },
-  CHECKED_IN:  { label: "Checked In",  icon: CheckCircle,  bg: "bg-emerald-50", text: "text-emerald-700" },
-  CHECKED_OUT: { label: "Checked Out", icon: CheckCircle,  bg: "bg-gray-100",   text: "text-gray-500"    },
-  CANCELLED:   { label: "Cancelled",   icon: XCircle,      bg: "bg-rose-50",    text: "text-rose-700"    },
-  NO_SHOW:     { label: "No Show",     icon: AlertCircle,  bg: "bg-amber-50",   text: "text-amber-700"   },
+  CONFIRMED:        { label: "Confirmed",        icon: Clock,        bg: "bg-blue-50",    text: "text-blue-700"    },
+  CHECKED_IN:       { label: "Checked In",       icon: CheckCircle,  bg: "bg-emerald-50", text: "text-emerald-700" },
+  CHECKED_OUT:      { label: "Checked Out",      icon: CheckCircle,  bg: "bg-gray-100",   text: "text-gray-500"    },
+  CANCELLED:        { label: "Cancelled",        icon: XCircle,      bg: "bg-rose-50",    text: "text-rose-700"    },
+  NO_SHOW:          { label: "No Show",          icon: AlertCircle,  bg: "bg-amber-50",   text: "text-amber-700"   },
+  PENDING_APPROVAL: { label: "Pending Approval", icon: Clock,        bg: "bg-amber-50",   text: "text-amber-700"   },
+  ACTIVE:           { label: "Confirmed",        icon: CheckCircle,  bg: "bg-emerald-50", text: "text-emerald-700" },
+  REJECTED:         { label: "Rejected",         icon: XCircle,      bg: "bg-rose-50",    text: "text-rose-700"    },
+  EXPIRING:         { label: "Expiring Soon",    icon: AlertCircle,  bg: "bg-amber-50",   text: "text-amber-700"   },
+  EXPIRED:          { label: "Expired",          icon: XCircle,      bg: "bg-gray-100",   text: "text-gray-500"    },
+  EXTENDED:         { label: "Extended",         icon: CheckCircle,  bg: "bg-blue-50",    text: "text-blue-700"    },
+  COMPLETED:        { label: "Completed",        icon: CheckCircle,  bg: "bg-gray-100",   text: "text-gray-500"    },
 };
 
 const formatDate = (iso: string) =>
@@ -73,11 +82,81 @@ function BookingCard({ booking, onCancel, isCancelling }: { booking: Booking; on
   );
 }
 
+function HostelBookingCard({ booking }: { booking: SemesterPlan }) {
+  const cfg  = STATUS_CFG[booking.status] ?? STATUS_CFG.PENDING_APPROVAL;
+  const Icon = cfg.icon;
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-5 hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-gray-900 truncate">{booking.property?.name ?? "Hostel"}</p>
+          {booking.property?.location && (
+            <div className="flex items-center gap-1 text-xs text-gray-400 mt-0.5">
+              <MapPin className="w-3 h-3" />
+              {booking.property.location.city}, {booking.property.location.region}
+            </div>
+          )}
+        </div>
+        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold flex-shrink-0 ${cfg.bg} ${cfg.text}`}>
+          <Icon className="w-3 h-3" />
+          {cfg.label}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
+        <span className="flex items-center gap-1">
+          <BedDouble className="w-3.5 h-3.5" />
+          {booking.roomNumber ? `Room ${booking.roomNumber}` : "Room —"}
+          {booking.bed?.bedNumber ? ` · Bed ${booking.bed.bedNumber}` : ""}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
+        <span className="flex items-center gap-1">
+          <GraduationCap className="w-3.5 h-3.5" />
+          {booking.semesterName}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3 text-xs text-gray-500 mb-3">
+        <span className="flex items-center gap-1">
+          <Calendar className="w-3.5 h-3.5" />
+          Check-in {formatDate(booking.checkIn)}
+        </span>
+      </div>
+
+      {booking.status === "REJECTED" && (
+        <div className="bg-rose-50 border border-rose-100 rounded-lg px-3 py-2 mb-3 text-xs text-rose-600">
+          This booking was not approved by the hostel manager.
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+        <p className="text-sm font-bold text-gray-900">{formatGHS(booking.amountPaid)}</p>
+        <p className="text-xs font-mono text-gray-400">{booking.reference?.slice(0, 12)}...</p>
+      </div>
+    </div>
+  );
+}
+
 export default function TenantBookingsPage() {
   const {
     bookings, upcomingBookings, pastBookings, activeBooking,
     isLoading, handleCancel, isCancelling, refetch,
   } = useGuestBooking();
+
+  const {
+    data: hostelBookingsRaw,
+    isLoading: loadingHostelBookings,
+    error: hostelError,
+    refetch: refetchHostel,
+  } = useGetStudentBookingsQuery();
+
+  const hostelBookings: SemesterPlan[] = [...(hostelBookingsRaw ?? [])].sort(
+    (a, b) => new Date(b.checkIn).getTime() - new Date(a.checkIn).getTime()
+  );
+
+  const hasAnyBookings = bookings.length > 0 || hostelBookings.length > 0;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -88,16 +167,19 @@ export default function TenantBookingsPage() {
             <h1 className="text-2xl font-bold text-gray-900">My Bookings</h1>
             <p className="text-sm text-gray-500 mt-0.5">Your short stay and hostel bookings</p>
           </div>
-          <button onClick={() => refetch()} className="p-2.5 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
+          <button
+            onClick={() => { refetch(); refetchHostel(); }}
+            className="p-2.5 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+          >
             <RefreshCw className="w-4 h-4 text-gray-600" />
           </button>
         </div>
 
         <div className="grid grid-cols-3 gap-4">
           {[
-            { label: "Upcoming",  value: upcomingBookings.length, color: "text-blue-600",    bg: "bg-blue-50"    },
-            { label: "Active",    value: activeBooking ? 1 : 0,   color: "text-emerald-600", bg: "bg-emerald-50" },
-            { label: "Completed", value: pastBookings.length,     color: "text-gray-600",    bg: "bg-gray-100"   },
+            { label: "Upcoming",  value: upcomingBookings.length + hostelBookings.filter(b => b.status === "PENDING_APPROVAL").length, color: "text-blue-600",    bg: "bg-blue-50"    },
+            { label: "Active",    value: (activeBooking ? 1 : 0) + hostelBookings.filter(b => b.status === "ACTIVE").length,   color: "text-emerald-600", bg: "bg-emerald-50" },
+            { label: "Completed", value: pastBookings.length + hostelBookings.filter(b => b.status === "COMPLETED" || b.status === "EXPIRED").length,     color: "text-gray-600",    bg: "bg-gray-100"   },
           ].map(({ label, value, color, bg }) => (
             <div key={label} className="bg-white rounded-2xl border border-gray-200 p-5 text-center">
               <p className={`text-2xl font-bold ${color}`}>{value}</p>
@@ -121,15 +203,7 @@ export default function TenantBookingsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-44" />)}
           </div>
-        ) : bookings.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-gray-200 p-16 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Calendar className="w-8 h-8 text-gray-400" />
-            </div>
-            <h3 className="text-lg font-bold text-gray-900 mb-1">No bookings yet</h3>
-            <p className="text-sm text-gray-500">Browse short stay and hostel properties to make your first booking.</p>
-          </div>
-        ) : (
+        ) : bookings.length === 0 ? null : (
           <>
             {upcomingBookings.length > 0 && (
               <div>
@@ -152,6 +226,51 @@ export default function TenantBookingsPage() {
               </div>
             )}
           </>
+        )}
+
+        <div>
+          <h2 className="text-base font-bold text-gray-900 mb-4">
+            Hostel Bookings {hostelBookings.length > 0 && `(${hostelBookings.length})`}
+          </h2>
+          {loadingHostelBookings ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {[...Array(2)].map((_, i) => <Skeleton key={i} className="h-40" />)}
+            </div>
+          ) : hostelError ? (
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-6 text-center">
+              <p className="text-sm text-rose-600 font-semibold mb-3">Couldn't load your hostel bookings.</p>
+              <button
+                onClick={() => refetchHostel()}
+                className="px-4 py-2 bg-white border border-rose-200 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
+              >
+                Try again
+              </button>
+            </div>
+          ) : hostelBookings.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-200 p-10 text-center">
+              <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <GraduationCap className="w-7 h-7 text-gray-400" />
+              </div>
+              <h3 className="text-base font-bold text-gray-900 mb-1">No hostel bookings yet</h3>
+              <p className="text-sm text-gray-500">Browse hostel properties to book a bed for the semester.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {hostelBookings.map((b) => (
+                <HostelBookingCard key={b.id} booking={b} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {!hasAnyBookings && !isLoading && !loadingHostelBookings && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-16 text-center">
+            <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Calendar className="w-8 h-8 text-gray-400" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-1">No bookings yet</h3>
+            <p className="text-sm text-gray-500">Browse short stay and hostel properties to make your first booking.</p>
+          </div>
         )}
       </div>
     </div>

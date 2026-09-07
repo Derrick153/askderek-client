@@ -96,7 +96,7 @@ const AboutPage = () => {
             
             <p className="text-xl md:text-2xl text-gray-600 max-w-3xl mx-auto leading-relaxed mb-8">
               Eliminating rental scams in Ghana, one verified property at a time. 
-              Starting from Tarkwa, building trust across the nation.
+              building trust across the nation.
             </p>
           </motion.div>
         </div>

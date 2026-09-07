@@ -1,19 +1,19 @@
 /**
- * api.ts — RTK Query API slice
+ * api.ts � RTK Query API slice
  *
  * Conventions enforced throughout:
  *  - Zero `any`. Every endpoint has an explicit response and arg type.
- *  - build.query  → reads  (GET)  — providesTags, no success toast
- *  - build.mutation → writes (POST/PUT/DELETE) — invalidatesTags + toast
+ *  - build.query  ? reads  (GET)  � providesTags, no success toast
+ *  - build.mutation ? writes (POST/PUT/DELETE) � invalidatesTags + toast
  *  - providesTags always guards against undefined result (error path)
  *  - listTags / entityTag helpers eliminate tag boilerplate and undefined ids
  *  - All date fields use ISODate / ISODateTime nominal aliases
- *  - Clerk token fetch is non-blocking — no polling loop
+ *  - Clerk token fetch is non-blocking � no polling loop
  *  - getAuthUser has providesTags so "Auth" invalidations bust it
  *  - queryFn errors use the correct RTK CUSTOM_ERROR shape
  *  - getApplications uses RTK params object (not manual URLSearchParams)
  *  - PaginationParams / PaginatedResponse used on all admin list endpoints
- *  - Domain enums are exported as union types — single source of truth
+ *  - Domain enums are exported as union types � single source of truth
  *  - splitAdvancePayment invalidates "Leases" in addition to "Payments"
  *  - FormData usage on createProperty is documented to prevent header mistakes
  */
@@ -21,27 +21,33 @@
 import { cleanParams, withToast } from "@/lib/utils";
 import {
   Application,
+  Bed,
+  BedStatus,
   Lease,
   Manager,
-  Payment,
+  PaymentStructure,
   Property,
+  Room,
+  RoomGender,
+  Payment,
   Tenant,
 } from "@/types/prismaTypes";
+import { getClerkToken } from "@/lib/clerkTokenProvider";
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { FiltersState } from ".";
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // NOMINAL DATE ALIASES
 // Carries intent without runtime cost. Use ISODate for "YYYY-MM-DD" and
 // ISODateTime for full "YYYY-MM-DDTHH:mm:ssZ" timestamps.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 type ISODate     = string;
 type ISODateTime = string;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // PAGINATION
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 export interface PaginationParams {
   page?:  number;
@@ -55,9 +61,9 @@ export interface PaginatedResponse<T> {
   totalPages: number;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DOMAIN ENUM TYPES  (exported — use these instead of repeating literals)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+// DOMAIN ENUM TYPES  (exported � use these instead of repeating literals)
+// -----------------------------------------------------------------------------
 
 export type UserRole       = "tenant" | "manager" | "admin";
 export type EnquiryType    = "MESSAGE" | "CALL_REQUEST" | "VIEWING";
@@ -69,9 +75,9 @@ export type SemesterStatus = "ACTIVE" | "EXPIRING" | "EXTENDED" | "COMPLETED" | 
 export type ReceiptType    = "RENT_PAYMENT" | "SHORT_STAY_BOOKING" | "HOSTEL_BOOKING";
 export type VerifStatus    = "PENDING" | "APPROVED" | "REJECTED";
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // CORE DOMAIN INTERFACES
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 export interface ClerkUser {
   userId:       string;
@@ -99,7 +105,7 @@ export interface RegisterUserResponse {
   role:    string;
 }
 
-/** Renamed from Message → ChatMessage to avoid shadowing browser MessageEvent. */
+/** Renamed from Message ? ChatMessage to avoid shadowing browser MessageEvent. */
 export interface ChatMessage {
   id:            number;
   enquiryId:     number;
@@ -186,6 +192,15 @@ export interface HostelSchool {
   location: string;
 }
 
+export type HostelBookingStatus =
+  | "ACTIVE"
+  | "EXPIRING"
+  | "EXTENDED"
+  | "COMPLETED"
+  | "EXPIRED"
+  | "PENDING_APPROVAL"
+  | "REJECTED";
+
 export interface SemesterPlan {
   id:             number;
   propertyId:     number;
@@ -199,9 +214,13 @@ export interface SemesterPlan {
   roomNumber?:    string;
   amountPaid:     number;
   reference:      string;
-  status:         SemesterStatus;
+  status:         HostelBookingStatus;
   createdAt:      ISODateTime;
   school?:        HostelSchool;
+  bedId?:         number;
+  bookingStatus?: HostelBookingStatus;
+  property?:      { id: number; name: string; location?: { city: string; region: string } };
+  bed?:           { id: number; bedNumber: string };
 }
 
 export interface SchoolSemester {
@@ -276,9 +295,9 @@ export interface ReceiptSummary {
   tenantName:   string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // PAYMENT RESPONSE TYPES
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 export interface PaystackInitResponse {
   authorization_url: string;
@@ -315,9 +334,9 @@ export interface TenantTransactions {
   }[];
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // ADMIN RESPONSE TYPES
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 export interface DashboardStats {
   totalProperties:      number;
@@ -450,9 +469,9 @@ export interface TenantLeaseStatus {
   coverageEnd?:   ISODate;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // TAG TYPES
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 const TAG_TYPES = [
   "Auth",
@@ -480,15 +499,16 @@ const TAG_TYPES = [
   "LeaseExpiry",
   "Verify",
   "Sale",
+  "Rooms",
 ] as const;
 
 type TagType = (typeof TAG_TYPES)[number];
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // TAG HELPERS
 // Centralises the list/entity tag patterns and guards against undefined ids
 // on the error path (when result is undefined because the request failed).
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 function listTags<T extends { id: number }>(
   tag: TagType,
@@ -509,9 +529,9 @@ function entityTag<T extends { id: number }>(
   return result ? [{ type: tag, id: result.id }] : [tag];
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // API SLICE
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 export const api = createApi({
   reducerPath: "api",
@@ -520,14 +540,8 @@ export const api = createApi({
     baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
 
     prepareHeaders: async (headers) => {
-      if (typeof window === "undefined") return headers;
-      try {
-        const token: string | null =
-          (await (window as any).Clerk?.session?.getToken()) ?? null;
-        if (token) headers.set("Authorization", `Bearer ${token}`);
-      } catch (e) {
-        console.error("[api] Failed to get Clerk token:", e);
-      }
+      const token = await getClerkToken();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
       return headers;
     },
   }),
@@ -536,12 +550,12 @@ export const api = createApi({
 
   endpoints: (build) => ({
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // AUTH
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     /**
-     * Resolves Clerk user from the browser SDK — no network request.
+     * Resolves Clerk user from the browser SDK � no network request.
      * providesTags: ["Auth"] is required so that registerUser's
      * invalidatesTags: ["Auth"] correctly busts this cache entry.
      */
@@ -612,9 +626,9 @@ export const api = createApi({
       },
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // PROPERTIES
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     getProperties: build.query<
       Property[],
@@ -654,7 +668,7 @@ export const api = createApi({
     }),
 
     /**
-     * Body is FormData — do NOT add a Content-Type header.
+     * Body is FormData � do NOT add a Content-Type header.
      * The browser sets it automatically with the multipart boundary.
      * fetchBaseQuery detects FormData and omits Content-Type correctly.
      */
@@ -669,9 +683,9 @@ export const api = createApi({
       },
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // TENANTS
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     getTenant: build.query<Tenant, string>({
       query: (userId) => `tenants/${userId}`,
@@ -749,9 +763,9 @@ export const api = createApi({
       },
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // MANAGERS
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     getManagerProperties: build.query<Property[], string>({
       query: (userId) => `managers/${userId}/properties`,
@@ -780,9 +794,9 @@ export const api = createApi({
       },
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // LEASES
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     getLeases: build.query<Lease[], void>({
       query: () => "leases",
@@ -802,9 +816,9 @@ export const api = createApi({
       },
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // PAYMENTS
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     getPayments: build.query<Payment[], number>({
       query: (leaseId) => `leases/${leaseId}/payments`,
@@ -825,7 +839,7 @@ export const api = createApi({
       },
     }),
 
-    // Read-only verification — no side-effect toast.
+    // Read-only verification � no side-effect toast.
     verifyPayment: build.query<PaymentReceipt, string>({
       query: (reference) => `payments/verify/${reference}`,
       providesTags: ["Payments"],
@@ -861,9 +875,9 @@ export const api = createApi({
       providesTags: ["Transactions"],
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // ADMIN — PAYMENTS
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // ADMIN � PAYMENTS
+    // -------------------------------------------------------------------------
 
     getAdminAllPayments: build.query<
       PaginatedResponse<AdminPayment>,
@@ -928,9 +942,9 @@ export const api = createApi({
       providesTags: ["Commissions"],
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // APPLICATIONS
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     getApplications: build.query<
       Application[],
@@ -983,9 +997,9 @@ export const api = createApi({
       },
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // ADMIN — GENERAL
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // ADMIN � GENERAL
+    // -------------------------------------------------------------------------
 
     createAdmin: build.mutation<
       MeResponse,
@@ -1150,9 +1164,9 @@ export const api = createApi({
       providesTags: (_, __, id) => [{ type: "AuditLogs", id }],
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // SALE
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     listPropertyForSale: build.mutation<
       PropertySaleStatus,
@@ -1277,9 +1291,9 @@ export const api = createApi({
       },
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // ENQUIRIES
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     createEnquiry: build.mutation<
       Enquiry,
@@ -1302,6 +1316,7 @@ export const api = createApi({
 
     getUserEnquiries: build.query<Enquiry[], void>({
       query: () => "enquiries/my",
+      transformResponse: (response: { success: boolean; message: string; data: Enquiry[] }) => response.data,
       providesTags: (result) => listTags("Enquiries", result),
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, { error: "Failed to fetch enquiries." });
@@ -1310,6 +1325,7 @@ export const api = createApi({
 
     getManagerEnquiries: build.query<Enquiry[], void>({
       query: () => "enquiries/manager",
+      transformResponse: (response: { success: boolean; message: string; data: Enquiry[] }) => response.data,
       providesTags: (result) => listTags("Enquiries", result),
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, { error: "Failed to fetch enquiries." });
@@ -1394,9 +1410,9 @@ export const api = createApi({
       providesTags: ["Enquiries"],
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // MESSAGES
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     sendMessage: build.mutation<
       ChatMessage,
@@ -1411,15 +1427,16 @@ export const api = createApi({
 
     getThread: build.query<ChatMessage[], number>({
       query: (enquiryId) => `messages/thread/${enquiryId}`,
-      // Scoped tag so invalidating one thread doesn't refetch all threads.
+      transformResponse: (response: { success: boolean; message: string; data: ChatMessage[] }) => response.data,
       providesTags: (_, __, enquiryId) => [{ type: "Messages", id: enquiryId }],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, { error: "Failed to load thread." });
       },
     }),
 
-   getUserThreads: build.query<MessageThread[], void>({
-  query: () => "messages/threads/my",
+    getUserThreads: build.query<MessageThread[], void>({
+      query: () => "messages/threads/my",
+      transformResponse: (response: { success: boolean; message: string; data: MessageThread[] }) => response.data,
       providesTags: ["Messages"],
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, { error: "Failed to load threads." });
@@ -1452,9 +1469,9 @@ export const api = createApi({
       },
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // BOOKINGS
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     createBooking: build.mutation<
       Booking,
@@ -1525,6 +1542,7 @@ export const api = createApi({
 
     getGuestBookings: build.query<Booking[], void>({
       query: () => "bookings/my",
+      transformResponse: (response: { success: boolean; message: string; data: Booking[] }) => response.data,
       providesTags: (result) => listTags("Bookings", result),
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, { error: "Failed to fetch bookings." });
@@ -1533,6 +1551,7 @@ export const api = createApi({
 
     getPropertyBookings: build.query<Booking[], number>({
       query: (propertyId) => `bookings/property/${propertyId}`,
+      transformResponse: (response: any) => response?.data ?? response,
       providesTags: (result) => listTags("Bookings", result),
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, { error: "Failed to fetch property bookings." });
@@ -1547,9 +1566,9 @@ export const api = createApi({
       providesTags: ["Bookings"],
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // HOSTELS
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     createSemesterBooking: build.mutation<
       SemesterPlan,
@@ -1559,8 +1578,8 @@ export const api = createApi({
         checkIn:       ISODate;
         closingType:   ClosingType;
         fixedEndDate?: ISODate;
+        bedId:         number;
         schoolId?:     number;
-        roomNumber?:   string;
       }
     >({
       query: (body) => ({ url: "hostels/book", method: "POST", body }),
@@ -1575,6 +1594,7 @@ export const api = createApi({
 
     getStudentBookings: build.query<SemesterPlan[], void>({
       query: () => "hostels/my",
+      transformResponse: (response: any) => response?.data ?? response,
       providesTags: (result) => listTags("Hostels", result),
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, { error: "Failed to fetch hostel bookings." });
@@ -1583,6 +1603,7 @@ export const api = createApi({
 
     getHostelBookings: build.query<SemesterPlan[], number>({
       query: (propertyId) => `hostels/property/${propertyId}`,
+      transformResponse: (response: any) => response?.bookings ?? response?.data?.bookings ?? response,
       providesTags: (result) => listTags("Hostels", result),
       async onQueryStarted(_, { queryFulfilled }) {
         await withToast(queryFulfilled, { error: "Failed to fetch hostel bookings." });
@@ -1638,9 +1659,155 @@ export const api = createApi({
       providesTags: ["Hostels"],
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+
+    // -----------------------------------------------------------------
+    // HOSTEL ROOMS & BEDS
+    // -----------------------------------------------------------------
+
+    addRoom: build.mutation<
+      Room,
+      { propertyId: number; roomNumber: string; block?: string; floor?: string; gender?: RoomGender; capacity: number; semesterPrice?: number }
+    >({
+      query: ({ propertyId, ...body }) => ({ url: `hostels/${propertyId}/rooms`, method: "POST", body }),
+      invalidatesTags: ["Rooms"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { success: "Room added successfully!", error: "Failed to add room." });
+      },
+    }),
+
+    addPaymentStructure: build.mutation<
+      PaymentStructure,
+      { propertyId: number; price: number }
+    >({
+      query: ({ propertyId, ...body }) => ({ url: `hostels/${propertyId}/pricing`, method: "POST", body }),
+      invalidatesTags: ["Hostels"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { success: "Pricing configured successfully!", error: "Failed to configure pricing." });
+      },
+    }),
+    bulkAddRooms: build.mutation<
+      { created: Room[]; skipped: string[] },
+      { propertyId: number; startRoom: string; endRoom: string; block?: string; floor?: string; gender?: RoomGender; capacity: number; semesterPrice?: number }
+    >({
+      query: ({ propertyId, ...body }) => ({ url: `hostels/${propertyId}/rooms/bulk`, method: "POST", body }),
+      invalidatesTags: ["Rooms"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { error: "Failed to bulk add rooms." });
+      },
+    }),
+
+    getHostelRooms: build.query<
+      { rooms: Room[]; totalRooms: number; totalBeds: number; occupiedBeds: number; reservedBeds: number; maintenanceBeds: number; availableBeds: number },
+      number
+    >({
+      query: (propertyId) => `hostels/${propertyId}/rooms`,
+      transformResponse: (response: any) => response?.data ?? response,
+      providesTags: ["Rooms"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { error: "Failed to load room inventory." });
+      },
+    }),
+
+
+    getPublicHostelRooms: build.query<{ rooms: { id: number; roomNumber: string; block?: string | null; floor?: string | null; gender?: RoomGender | null; capacity: number; semesterPrice?: number | null; beds: { id: number; bedNumber: string; status: BedStatus }[] }[]; totalRooms: number; totalBeds: number; occupiedBeds: number; reservedBeds: number; maintenanceBeds: number; availableBeds: number }, number>({
+      query: (propertyId) => `hostels/${propertyId}/public-rooms`,
+      transformResponse: (response: any) => response?.data ?? response,
+      providesTags: ["Rooms"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { error: "Failed to load available rooms." });
+      },
+    }),
+    getHostelStatistics: build.query<
+      {
+        totalRooms: number; totalBeds: number; occupiedBeds: number; reservedBeds: number;
+        maintenanceBeds: number; availableBeds: number; occupancyRate: number; totalRevenue: number;
+        pendingApprovals: number; confirmedBookings: number; rejectedBookings: number;
+      },
+      number
+    >({
+      query: (propertyId) => `hostels/${propertyId}/statistics`,
+      transformResponse: (response: any) => response?.data ?? response,
+      providesTags: ["Rooms", "Hostels"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { error: "Failed to load hostel statistics." });
+      },
+    }),
+
+    updateRoom: build.mutation<
+      Room,
+      { roomId: number; block?: string; floor?: string; gender?: RoomGender; semesterPrice?: number; isActive?: boolean }
+    >({
+      query: ({ roomId, ...body }) => ({ url: `hostels/rooms/${roomId}`, method: "PUT", body }),
+      invalidatesTags: ["Rooms"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { success: "Room updated!", error: "Failed to update room." });
+      },
+    }),
+
+    updateHostelProfile: build.mutation<Property,
+      { propertyId: number; emergencyContactName?: string; emergencyContactPhone?: string; rules?: string }
+    >({
+      query: ({ propertyId, ...body }) => ({ url: `hostels/${propertyId}/profile`, method: "PUT", body }),
+      invalidatesTags: ["Properties"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { success: "Hostel profile updated!", error: "Failed to update hostel profile." });
+      },
+    }),
+
+    deleteRoom: build.mutation<{ success: boolean }, number>({
+      query: (roomId) => ({ url: `hostels/rooms/${roomId}`, method: "DELETE" }),
+      invalidatesTags: ["Rooms"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { success: "Room deleted.", error: "Failed to delete room." });
+      },
+    }),
+
+    updateRoomCapacity: build.mutation<{ roomId: number; capacity: number; added: string[]; removed: string[] }, { roomId: number; capacity: number }>({
+      query: ({ roomId, ...body }) => ({ url: `hostels/rooms/${roomId}/capacity`, method: "PUT", body }),
+      invalidatesTags: ["Rooms"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { success: "Room capacity updated.", error: "Failed to update room capacity." });
+      },
+    }),
+
+    bulkPreviewCapacity: build.mutation<any, { propertyId: number; startRoom: string; endRoom: string; capacity: number }>({
+      query: ({ propertyId, ...body }) => ({ url: `hostels/${propertyId}/rooms/capacity/bulk-preview`, method: "POST", body }),
+    }),
+
+    bulkApplyCapacity: build.mutation<any, { propertyId: number; roomIds: number[]; capacity: number }>({
+      query: ({ propertyId, ...body }) => ({ url: `hostels/${propertyId}/rooms/capacity/bulk-apply`, method: "POST", body }),
+      invalidatesTags: ["Rooms"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { success: "Bulk capacity update complete.", error: "Bulk capacity update failed." });
+      },
+    }),
+
+    updateBedStatus: build.mutation<Bed, { bedId: number; status: "AVAILABLE" | "MAINTENANCE" }>({
+      query: ({ bedId, ...body }) => ({ url: `hostels/beds/${bedId}/status`, method: "PUT", body }),
+      invalidatesTags: ["Rooms"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { success: "Bed status updated!", error: "Failed to update bed status." });
+      },
+    }),
+
+    approveBooking: build.mutation<SemesterPlan, number>({
+      query: (bookingId) => ({ url: `hostels/bookings/${bookingId}/approve`, method: "PUT" }),
+      invalidatesTags: ["Rooms", "Hostels"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { success: "Booking approved!", error: "Failed to approve booking." });
+      },
+    }),
+
+    rejectBooking: build.mutation<SemesterPlan, { bookingId: number; reason: string }>({
+      query: ({ bookingId, ...body }) => ({ url: `hostels/bookings/${bookingId}/reject`, method: "PUT", body }),
+      invalidatesTags: ["Rooms", "Hostels"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { success: "Booking rejected.", error: "Failed to reject booking." });
+      },
+    }),
+    // -------------------------------------------------------------------------
     // SCHOOLS
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     getAllSchools: build.query<School[], void>({
       query: () => "schools",
@@ -1747,9 +1914,9 @@ export const api = createApi({
       },
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // ADVANCE PAYMENTS
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     calculateCoverage: build.mutation<
       CoverageCalculation,
@@ -1791,9 +1958,9 @@ export const api = createApi({
       },
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // LEASE EXPIRY
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     getExpiringLeases: build.query<ExpiringLease[], { days?: number }>({
       query: (params) => ({ url: "lease-expiry/expiring", params }),
@@ -1870,9 +2037,9 @@ export const api = createApi({
       },
     }),
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     // VERIFY
-    // ─────────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
 
     verifyReceipt: build.query<VerifyReceipt, string>({
       query: (reference) => `verify/${reference}`,
@@ -1889,9 +2056,9 @@ export const api = createApi({
   }),
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // EXPORTED HOOKS  (grouped to mirror endpoint sections)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 export const {
   // Auth
@@ -1931,7 +2098,7 @@ export const {
   useGetLandlordEarningsQuery,
   useGetTransactionsByTenantQuery,
 
-  // Admin — Payments
+  // Admin � Payments
   useGetAdminAllPaymentsQuery,
   useGetAdminRevenueQuery,
   useGetAdminPaymentByRefQuery,
@@ -1945,7 +2112,7 @@ export const {
   useUpdateApplicationStatusMutation,
   useCreateApplicationMutation,
 
-  // Admin — General
+  // Admin � General
   useCreateAdminMutation,
   useGetAdminQuery,
   useGetDashboardStatsQuery,
@@ -2012,6 +2179,21 @@ export const {
   useCheckoutStudentMutation,
   useExtendStayMutation,
   useGetAllHostelBookingsAdminQuery,
+  useAddRoomMutation,
+  useAddPaymentStructureMutation,
+  useBulkAddRoomsMutation,
+  useGetHostelRoomsQuery,
+  useGetPublicHostelRoomsQuery,
+  useGetHostelStatisticsQuery,
+  useUpdateRoomMutation,
+  useUpdateHostelProfileMutation,
+  useDeleteRoomMutation,
+  useUpdateRoomCapacityMutation,
+  useBulkPreviewCapacityMutation,
+  useBulkApplyCapacityMutation,
+  useUpdateBedStatusMutation,
+  useApproveBookingMutation,
+  useRejectBookingMutation,
 
   // Schools
   useGetAllSchoolsQuery,
@@ -2040,3 +2222,5 @@ export const {
   useVerifyReceiptQuery,
   useGetReceiptSummaryQuery,
 } = api;
+
+

@@ -128,7 +128,7 @@ export default function ManagerPropertiesPage() {
               <span className="text-xs font-black text-orange-500 tracking-widest uppercase">Property Portfolio</span>
             </div>
             <h1 className="text-3xl font-black text-white">My Properties</h1>
-            <p className="text-zinc-500 text-sm mt-1">{total} listings in Tarkwa, Ghana</p>
+            <p className="text-zinc-500 text-sm mt-1">{total} listings in Ghana</p>
           </div>
           <Link
             href="/managers/newproperty"
@@ -154,7 +154,7 @@ export default function ManagerPropertiesPage() {
             </div>
             <h2 className="text-xl font-black text-white mb-2">No Properties Listed</h2>
             <p className="text-zinc-500 text-sm max-w-sm mx-auto mb-6">
-              Add your first property to start receiving applications from tenants in Tarkwa.
+              Add your first property to start receiving applications from tenants in Ghana.
             </p>
             <Link
               href="/managers/newproperty"

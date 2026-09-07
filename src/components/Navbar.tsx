@@ -62,10 +62,12 @@ const ADLogo = () => (
    NAV LINKS
 ───────────────────────────────────────────── */
 const NAV_LINKS = [
-  { label: "Rent",       href: "/search?type=rent" },
-  { label: "Sale",       href: "/search?type=sale" },
-  { label: "Short Stay", href: "/search?type=shortStay" },
-  { label: "Land",       href: "/search?type=land" },
+  { label: "Rent",       href: "/search?propertyType=FOR_RENT" },
+  { label: "Sale",       href: "/sale" },
+  { label: "Short Stay", href: "/short-stay" },
+  { label: "Land",       href: "/land" },
+  { label: "Hostel",     href: "/hostel" },
+  { label: "Office",     href: "/office" },
 ] as const;
 
 /* ─────────────────────────────────────────────
@@ -433,3 +435,4 @@ const Navbar = () => {
 };
 
 export default Navbar;
+

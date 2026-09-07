@@ -1,10 +1,13 @@
 "use client";
 
+"use client";
+
 import { useEffect, useState } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useUser, useAuth } from "@clerk/nextjs";
 
 export function useDetectUserRole() {
   const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
   const [role, setRole] = useState<"tenant" | "manager" | "admin" | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -38,10 +41,12 @@ export function useDetectUserRole() {
 
         // 2. Fallback to API if metadata is missing
         const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api";
-        
+        const token = await getToken();
+        const authHeaders = { Authorization: `Bearer ${token}` };
+
         const [tenantRes, managerRes] = await Promise.allSettled([
-          fetch(`${API}/tenants/${user?.id}`),
-          fetch(`${API}/managers/${user?.id}`)
+          fetch(`${API}/tenants/${user?.id}`, { headers: authHeaders }),
+          fetch(`${API}/managers/${user?.id}`, { headers: authHeaders })
         ]);
 
         if (tenantRes.status === "fulfilled" && tenantRes.value.ok) {
@@ -59,8 +64,8 @@ export function useDetectUserRole() {
       }
     }
 
-    detectRole();
-  }, [user, isLoaded]);
+   detectRole();
+  }, [user, isLoaded, getToken]);
 
   return { role, loading };
 }

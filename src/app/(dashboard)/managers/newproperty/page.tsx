@@ -79,6 +79,7 @@ interface FormState {
   name:              string;
   description:       string;
   propertyType:      string;
+  listingType:       string;
   pricePerMonth:     string;
   securityDeposit:   string;
   applicationFee:    string;
@@ -100,6 +101,7 @@ interface FormState {
 
 const INITIAL_FORM: FormState = {
   name: "", description: "", propertyType: "SelfContained",
+  listingType: "",
   pricePerMonth: "", securityDeposit: "0", applicationFee: "0",
   beds: "1", baths: "1", squareFeet: "",
   address: "", city: "",
@@ -239,6 +241,7 @@ export default function NewPropertyPage() {
     e.preventDefault();
 
     if (!user?.id)                   { toast.error("You must be logged in");           return; }
+    if (!form.listingType)                { toast.error("Please choose a listing type (Rent, Sale, etc.)"); return; }
     if (!form.region || !form.city)  { toast.error("Please select a region and city"); return; }
     if (!form.address.trim())        { toast.error("Please enter a street address");    return; }
     if (uploadedImages.length === 0) { toast.error("Please add at least one photo");    return; }
@@ -254,6 +257,7 @@ export default function NewPropertyPage() {
       payload.append("name",            form.name.trim());
       payload.append("description",     form.description.trim());
       payload.append("propertyType",    form.propertyType);
+      payload.append("listingType",     form.listingType);
       payload.append("pricePerMonth",   form.pricePerMonth);
       payload.append("securityDeposit", form.securityDeposit);
       payload.append("applicationFee",  form.applicationFee);
@@ -373,6 +377,34 @@ export default function NewPropertyPage() {
                 <h2 className="text-sm font-black text-white tracking-widest uppercase flex items-center gap-2">
                   <Home className="w-4 h-4 text-orange-500" /> Basic Information
                 </h2>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-400 tracking-widest uppercase mb-3">
+                    Listing Type *
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { value: "FOR_RENT",   label: "Rent" },
+                      { value: "FOR_SALE",   label: "Sale" },
+                      { value: "SHORT_STAY", label: "Short Stay" },
+                      { value: "LAND",       label: "Land" },
+                      { value: "HOSTEL",     label: "Hostel" },
+                      { value: "OFFICE",     label: "Office" },
+                    ].map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, listingType: opt.value }))}
+                        className={`py-3 px-2 rounded-xl text-xs font-bold transition-all border ${
+                          form.listingType === opt.value
+                            ? "bg-orange-600 border-orange-600 text-white"
+                            : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-600"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
                 <div>
                   <label className="block text-xs font-bold text-zinc-400 tracking-widest uppercase mb-2">
@@ -382,7 +414,7 @@ export default function NewPropertyPage() {
                     value={form.name}
                     onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                     required
-                    placeholder="e.g. Modern Self-Contained — Tarkwa Town"
+                    placeholder="e.g. Modern Self-Contained - parakuo estate"
                     className="w-full bg-zinc-800 border border-zinc-700 focus:border-orange-500 text-white placeholder-zinc-600 px-4 py-3 rounded-xl outline-none text-sm transition-all focus:ring-2 focus:ring-orange-500/20"
                   />
                 </div>
@@ -795,3 +827,4 @@ export default function NewPropertyPage() {
     </div>
   );
 }
+

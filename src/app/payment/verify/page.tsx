@@ -2,12 +2,14 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import { CheckCircle2, XCircle, Loader2, ArrowRight, Home } from "lucide-react";
 import Link from "next/link";
 
 function PaymentVerifyContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { getToken, isLoaded } = useAuth();
   const reference = searchParams.get("reference") || searchParams.get("trxref");
 
   const [status, setStatus] = useState<"loading" | "success" | "failed">("loading");
@@ -15,6 +17,8 @@ function PaymentVerifyContent() {
   const [amount, setAmount] = useState<number | null>(null);
 
   useEffect(() => {
+    if (!isLoaded) return;
+
     if (!reference) {
       setStatus("failed");
       setMessage("No payment reference found.");
@@ -23,8 +27,10 @@ function PaymentVerifyContent() {
 
     const verify = async () => {
       try {
+        const token = await getToken();
         const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_BASE_URL}/payments/verify/${reference}`
+          `${process.env.NEXT_PUBLIC_API_BASE_URL}/payments/verify/${reference}`,
+          { headers: { Authorization: `Bearer ${token}` } }
         );
         const data = await res.json();
 
@@ -46,7 +52,7 @@ function PaymentVerifyContent() {
     };
 
     verify();
-  }, [reference, router]);
+  }, [reference, router, isLoaded, getToken]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
