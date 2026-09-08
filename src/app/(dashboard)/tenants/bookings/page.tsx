@@ -1,4 +1,4 @@
-"use client";
+ï»¿"use client";
 
 import { useUser }         from "@clerk/nextjs";
 import { useGuestBooking } from "@/hooks/useBooking";
@@ -106,8 +106,8 @@ function HostelBookingCard({ booking }: { booking: SemesterPlan }) {
       <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
         <span className="flex items-center gap-1">
           <BedDouble className="w-3.5 h-3.5" />
-          {booking.roomNumber ? `Room ${booking.roomNumber}` : "Room —"}
-          {booking.bed?.bedNumber ? ` · Bed ${booking.bed.bedNumber}` : ""}
+          {booking.roomNumber ? `Room ${booking.roomNumber}` : "Room â€”"}
+          {booking.bed?.bedNumber ? ` Â· Bed ${booking.bed.bedNumber}` : ""}
         </span>
       </div>
 
