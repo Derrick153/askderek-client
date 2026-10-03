@@ -15,12 +15,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, MapPin, Home } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
+import { useDetectUserRole } from "@/hooks/useDetectUserRole";
 
 const Listings = () => {
   const { user, isLoaded } = useUser();
   const userId = user?.id;
+  const { role } = useDetectUserRole();
 
-  const { data: tenant } = useGetTenantQuery(userId || "", { skip: !userId });
+  const { data: tenant } = useGetTenantQuery(userId || "", { skip: !userId || role !== "tenant" });
   const [addFavorite] = useAddFavoritePropertyMutation();
   const [removeFavorite] = useRemoveFavoritePropertyMutation();
 

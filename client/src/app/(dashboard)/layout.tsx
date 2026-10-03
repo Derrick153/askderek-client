@@ -1,5 +1,4 @@
 ﻿"use client";
-
 import Navbar from "@/components/Navbar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import Sidebar from "@/components/AppSidebar";
@@ -10,14 +9,14 @@ import { useUser } from "@clerk/nextjs";
 import { useDetectUserRole } from "@/hooks/useDetectUserRole";
 
 const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
+  const pathname = usePathname();
   const { user, isLoaded } = useUser();
   const { role, loading } = useDetectUserRole();
   const router = useRouter();
-  const pathname = usePathname();
 
-  // Redirect user if they enter the wrong dashboard
   useEffect(() => {
     if (!isLoaded || loading || !role) return;
+    if (pathname?.startsWith("/admin")) return;
     if (role === "tenant" && pathname.startsWith("/managers")) {
       router.push("/tenants/favorites", { scroll: false });
     }
@@ -26,7 +25,10 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     }
   }, [role, pathname, router, isLoaded, loading]);
 
-  // Loading screen — matches dark theme
+  if (pathname?.startsWith("/admin")) {
+    return <>{children}</>;
+  }
+
   if (!isLoaded || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-zinc-950">
@@ -38,7 +40,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-  // Not logged in
   if (!user) {
     router.push("/sign-in");
     return null;

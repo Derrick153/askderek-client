@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 import { wktToGeoJSON } from "@terraformer/wkt";
 import axios from "axios";
+import cloudinary from "../lib/cloudinary";
 
 const VALID_HIGHLIGHTS = new Set([
   "HighSpeedInternetAccess", "WasherDryer", "AirConditioning", "Heating",
@@ -28,16 +29,43 @@ const amenityMapping: Record<string, string> = {
   watertank: "WaterTank", dstv: "DSTV", balcony: "Balcony", tiled: "TiledFloors",
 };
 
+// ── HELPER: Upload file to Cloudinary ─────────────────────
+const uploadToCloudinary = (file: Express.Multer.File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: "askderek/properties",
+        transformation: [
+          { width: 1200, quality: "auto", fetch_format: "auto" }
+        ],
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result!.secure_url);
+      }
+    );
+    stream.end(file.buffer);
+  });
+};
+
+// ── GET ALL PROPERTIES ────────────────────────────────────
 export const getProperties = async (req: Request, res: Response): Promise<void> => {
   try {
     const {
       favoriteIds, priceMin, priceMax, beds, baths, propertyType,
-      squareFeetMin, squareFeetMax, amenities, availableFrom, latitude, longitude, location,
+      listingType,
+      squareFeetMin, squareFeetMax, amenities, availableFrom,
+      latitude, longitude, location,
+      // ✅ NEW — Ghana location filters
+      region, city, area,
     } = req.query;
 
     const conditions: string[] = [];
     const params: any[] = [];
     let paramIndex = 1;
+
+    // ── Only show approved properties to public ───────────
+    conditions.push(`p.status = 'Approved'`);
 
     if (favoriteIds) {
       const ids = (favoriteIds as string).split(",").map(Number);
@@ -45,13 +73,22 @@ export const getProperties = async (req: Request, res: Response): Promise<void> 
       conditions.push(`p.id IN (${placeholders})`);
       params.push(...ids);
     }
+
     if (priceMin) { conditions.push(`p."pricePerMonth" >= $${paramIndex++}`); params.push(Number(priceMin)); }
     if (priceMax) { conditions.push(`p."pricePerMonth" <= $${paramIndex++}`); params.push(Number(priceMax)); }
     if (beds && beds !== "any") { conditions.push(`p.beds >= $${paramIndex++}`); params.push(Number(beds)); }
     if (baths && baths !== "any") { conditions.push(`p.baths >= $${paramIndex++}`); params.push(Number(baths)); }
     if (squareFeetMin) { conditions.push(`p."squareFeet" >= $${paramIndex++}`); params.push(Number(squareFeetMin)); }
     if (squareFeetMax) { conditions.push(`p."squareFeet" <= $${paramIndex++}`); params.push(Number(squareFeetMax)); }
-    if (propertyType && propertyType !== "any") { conditions.push(`p."propertyType" = $${paramIndex++}`); params.push(propertyType); }
+    if (propertyType && propertyType !== "any") {
+      conditions.push(`p."propertyType" = $${paramIndex++}::"PropertyType"`);
+      params.push(propertyType);
+    }
+
+    if (listingType && listingType !== "any") {
+      conditions.push(`p."listingType" = $${paramIndex++}::"ListingType"`);
+      params.push(listingType);
+    }
 
     if (amenities && amenities !== "any") {
       const amenitiesArray = (amenities as string).split(",").map((a) => a.trim().toLowerCase());
@@ -67,26 +104,62 @@ export const getProperties = async (req: Request, res: Response): Promise<void> 
     }
 
     if (availableFrom && availableFrom !== "any") {
-      conditions.push(`EXISTS (SELECT 1 FROM "Lease" l2 WHERE l2."propertyId" = p.id AND l2."startDate"::date <= $${paramIndex++}::date)`);
+      conditions.push(
+        `EXISTS (SELECT 1 FROM "Lease" l2 WHERE l2."propertyId" = p.id AND l2."startDate"::date <= $${paramIndex++}::date)`
+      );
       params.push(availableFrom);
     }
 
-    if (latitude && longitude && latitude !== "0" && longitude !== "0") {
-      const lat = parseFloat(latitude as string);
-      const lng = parseFloat(longitude as string);
-      conditions.push(`ST_DWithin(l.coordinates::geography, ST_SetSRID(ST_MakePoint($${paramIndex++}, $${paramIndex++}), 4326)::geography, $${paramIndex++})`);
-      params.push(lng, lat, 50000);
-    } else if (location) {
-      const search = (location as string).trim();
-      conditions.push(`(LOWER(l.city) LIKE LOWER($${paramIndex++}) OR LOWER(l.address) LIKE LOWER($${paramIndex++}))`);
-      params.push(`%${search}%`, `%${search}%`);
+    // ── ✅ Ghana location filters ─────────────────────────
+    // These filter on the Location table (joined as `l`)
+    // Region — exact match (e.g. "Greater Accra Region")
+    if (region && region !== "any") {
+      conditions.push(`LOWER(l.region) = LOWER($${paramIndex++})`);
+      params.push(region);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    // City — exact match (e.g. "Accra", "Kumasi")
+    if (city && city !== "any") {
+      conditions.push(`LOWER(l.city) = LOWER($${paramIndex++})`);
+      params.push(city);
+    }
+
+    // Area — exact match on the area field (e.g. "East Legon")
+    if (area && area !== "any") {
+      conditions.push(`LOWER(l.area) = LOWER($${paramIndex++})`);
+      params.push(area);
+    }
+
+    // ── Geo / keyword search (only if no structured location) ──
+    if (!region && !city && !area) {
+      if (latitude && longitude && latitude !== "0" && longitude !== "0") {
+        const lat = parseFloat(latitude as string);
+        const lng = parseFloat(longitude as string);
+        conditions.push(
+          `ST_DWithin(l.coordinates::geography, ST_SetSRID(ST_MakePoint($${paramIndex++}, $${paramIndex++}), 4326)::geography, $${paramIndex++})`
+        );
+        params.push(lng, lat, 50000);
+      } else if (location) {
+        const search = (location as string).trim();
+        conditions.push(
+          `(LOWER(l.city) LIKE LOWER($${paramIndex++}) OR LOWER(l.address) LIKE LOWER($${paramIndex++}) OR LOWER(l.region) LIKE LOWER($${paramIndex++}) OR LOWER(l.area) LIKE LOWER($${paramIndex++}))`
+        );
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+      }
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
     const query = `
       SELECT p.*, json_build_object(
-        'id', l.id, 'address', l.address, 'city', l.city, 'state', l.state,
-        'country', l.country, 'postalCode', l."postalCode",
+        'id', l.id,
+        'address', l.address,
+        'city', l.city,
+        'state', l.state,
+        'region', l.region,
+        'area', l.area,
+        'country', l.country,
+        'postalCode', l."postalCode",
         'coordinates', json_build_object(
           'longitude', ST_X(l."coordinates"::geometry),
           'latitude', ST_Y(l."coordinates"::geometry)
@@ -99,6 +172,38 @@ export const getProperties = async (req: Request, res: Response): Promise<void> 
     `;
 
     const properties = await prisma.$queryRawUnsafe(query, ...params);
+
+    // Attach the real, Step 8-authoritative semester price to any HOSTEL
+    // results - never the Rent-oriented pricePerMonth field, and never a
+    // cosmetic Room.semesterPrice. Property-default scope only - this is a
+    // lightweight discovery summary, not the full room/bed detail page.
+    const hostelIds = (properties as any[])
+      .filter((p) => p.listingType === "HOSTEL")
+      .map((p) => p.id);
+
+    if (hostelIds.length > 0) {
+      const priceNow = new Date();
+      const priceRows = await prisma.paymentStructure.findMany({
+        where: {
+          propertyId: { in: hostelIds },
+          roomId: null,
+          effectiveFrom: { lte: priceNow },
+          OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: priceNow } }],
+        },
+        orderBy: { effectiveFrom: "desc" },
+      });
+      const priceByProperty = new Map<number, number>();
+      for (const row of priceRows) {
+        if (!priceByProperty.has(row.propertyId)) {
+          priceByProperty.set(row.propertyId, row.price);
+        }
+      }
+      for (const p of properties as any[]) {
+        if (p.listingType === "HOSTEL") {
+          p.currentHostelPrice = priceByProperty.get(p.id) ?? null;
+        }
+      }
+    }
     console.log(`✅ Found ${(properties as any[]).length} properties`);
     res.json(properties);
   } catch (error: any) {
@@ -107,6 +212,7 @@ export const getProperties = async (req: Request, res: Response): Promise<void> 
   }
 };
 
+// ── GET SINGLE PROPERTY ───────────────────────────────────
 export const getProperty = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -115,7 +221,10 @@ export const getProperty = async (req: Request, res: Response): Promise<void> =>
       include: { location: true, manager: true, leases: true },
     });
 
-    if (!property) { res.status(404).json({ message: "Property not found" }); return; }
+    if (!property) {
+      res.status(404).json({ message: "Property not found" });
+      return;
+    }
 
     const coordinates: { coordinates: string }[] = await prisma.$queryRawUnsafe(
       `SELECT ST_asText(coordinates) as coordinates FROM "Location" WHERE id = $1`,
@@ -139,33 +248,72 @@ export const getProperty = async (req: Request, res: Response): Promise<void> =>
   }
 };
 
+// ── CREATE PROPERTY ───────────────────────────────────────
 export const createProperty = async (req: Request, res: Response): Promise<void> => {
   try {
     const files = (req.files as Express.Multer.File[]) || [];
-    const { address, city, state, country, postalCode, managerClerkId, latitude, longitude, photoUrls, ...propertyData } = req.body;
+    const {
+      address, city, state, country, postalCode,
+      managerClerkId, latitude, longitude, photoUrls,
+      // ✅ NEW — receive region and area from the form
+      region, area,
+      ...propertyData
+    } = req.body;
 
     if (!managerClerkId || !address || !city) {
       res.status(400).json({ message: "managerClerkId, address, and city are required" });
       return;
     }
 
-    let finalPhotoUrls: string[] = [];
-    if (photoUrls && Array.isArray(photoUrls)) finalPhotoUrls = photoUrls;
-    else if (photoUrls && typeof photoUrls === "string") finalPhotoUrls = [photoUrls];
-    else if (files.length > 0) finalPhotoUrls = files.map((f) => `placeholder-${f.originalname}`);
+    // Listing category is required — determines which page (Rent/Sale/
+    // Short Stay/Land/Hostel/Office) this property appears under.
+    // No silent default to FOR_RENT — the manager must choose explicitly.
+    const VALID_LISTING_TYPES = ["FOR_RENT", "FOR_SALE", "SHORT_STAY", "LAND", "HOSTEL", "OFFICE"];
+    if (!propertyData.listingType || !VALID_LISTING_TYPES.includes(propertyData.listingType)) {
+      res.status(400).json({
+        message: `listingType is required and must be one of: ${VALID_LISTING_TYPES.join(", ")}`,
+      });
+      return;
+    }
 
+    // ── HANDLE PHOTOS ──────────────────────────────────────
+    let finalPhotoUrls: string[] = [];
+
+    if (photoUrls && Array.isArray(photoUrls)) {
+      finalPhotoUrls = photoUrls;
+    } else if (photoUrls && typeof photoUrls === "string") {
+      finalPhotoUrls = photoUrls.split(",").map((url: string) => url.trim()).filter(Boolean);
+    } else if (files.length > 0) {
+      console.log(`📸 Uploading ${files.length} photos to Cloudinary...`);
+      try {
+        finalPhotoUrls = await Promise.all(files.map(uploadToCloudinary));
+        console.log(`✅ Uploaded ${finalPhotoUrls.length} photos to Cloudinary`);
+      } catch (uploadError: any) {
+        console.error("❌ Cloudinary upload failed:", uploadError.message);
+        res.status(500).json({ message: "Failed to upload images. Please try again." });
+        return;
+      }
+    }
+
+    // ── GEOCODING ──────────────────────────────────────────
     let lng = longitude ? parseFloat(longitude) : 0;
     let lat = latitude ? parseFloat(latitude) : 0;
 
     if (!lng || !lat) {
       try {
         const geocodingUrl = `https://nominatim.openstreetmap.org/search?${new URLSearchParams({
-          street: address, city, country: country || "Ghana",
-          postalcode: postalCode || "", format: "json", limit: "1",
+          street: address,
+          city,
+          country: country || "Ghana",
+          postalcode: postalCode || "",
+          format: "json",
+          limit: "1",
         }).toString()}`;
+
         const geocodingResponse = await axios.get(geocodingUrl, {
           headers: { "User-Agent": "AskDerekRentals (askderek@gmail.com)" },
         });
+
         if (geocodingResponse.data[0]?.lon) {
           lng = parseFloat(geocodingResponse.data[0].lon);
           lat = parseFloat(geocodingResponse.data[0].lat);
@@ -177,13 +325,23 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
       }
     }
 
+    // ── ✅ CREATE LOCATION (now saves region and area) ─────
     const location: any[] = await prisma.$queryRawUnsafe(
-      `INSERT INTO "Location" (address, city, state, country, "postalCode", coordinates)
-       VALUES ($1, $2, $3, $4, $5, ST_SetSRID(ST_MakePoint($6, $7), 4326))
-       RETURNING id, address, city, state, country, "postalCode", ST_AsText(coordinates) as coordinates`,
-      address, city, state || "Western", country || "Ghana", postalCode || "", lng, lat
+      `INSERT INTO "Location" (address, city, state, region, area, country, "postalCode", coordinates)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, ST_SetSRID(ST_MakePoint($8, $9), 4326))
+       RETURNING id, address, city, state, region, area, country, "postalCode", ST_AsText(coordinates) as coordinates`,
+      address,
+      city,
+      state || region || "Western",   // state mirrors region for compatibility
+      region || null,                  // ✅ save region e.g. "Greater Accra Region"
+      area   || null,                  // ✅ save area  e.g. "East Legon"
+      country || "Ghana",
+      postalCode || "",
+      lng,
+      lat
     );
 
+    // ── VALIDATE HIGHLIGHTS & AMENITIES ───────────────────
     const rawHighlights: string[] = typeof propertyData.highlights === "string"
       ? propertyData.highlights.split(",").map((h: string) => h.trim()).filter(Boolean)
       : Array.isArray(propertyData.highlights) ? propertyData.highlights : [];
@@ -193,35 +351,32 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
       : Array.isArray(propertyData.amenities) ? propertyData.amenities : [];
 
     const filteredHighlights = rawHighlights.filter((h) => VALID_HIGHLIGHTS.has(h));
-    const filteredAmenities = rawAmenities.filter((a) => VALID_AMENITIES.has(a));
-
-    if (rawHighlights.length !== filteredHighlights.length) {
-      console.log(`⚠️ Filtered invalid highlights: ${rawHighlights.filter(h => !VALID_HIGHLIGHTS.has(h)).join(", ")}`);
-    }
+    const filteredAmenities  = rawAmenities.filter((a) => VALID_AMENITIES.has(a));
 
     const { highlights: _h, amenities: _a, ...cleanPropertyData } = propertyData;
 
+    // ── CREATE PROPERTY ────────────────────────────────────
     const newProperty = await prisma.property.create({
       data: {
         ...cleanPropertyData,
-        photoUrls: finalPhotoUrls,
-        locationId: location[0].id,
+        photoUrls:         finalPhotoUrls,
+        locationId:        location[0].id,
         managerClerkId,
-        highlights: filteredHighlights,
-        amenities: filteredAmenities,
-        isPetsAllowed: propertyData.isPetsAllowed === "true" || propertyData.isPetsAllowed === true,
+        highlights:        filteredHighlights,
+        amenities:         filteredAmenities,
+        isPetsAllowed:     propertyData.isPetsAllowed === "true" || propertyData.isPetsAllowed === true,
         isParkingIncluded: propertyData.isParkingIncluded === "true" || propertyData.isParkingIncluded === true,
-        pricePerMonth: parseFloat(propertyData.pricePerMonth),
-        securityDeposit: parseFloat(propertyData.securityDeposit || "0"),
-        applicationFee: parseFloat(propertyData.applicationFee || "0"),
-        beds: parseInt(propertyData.beds),
-        baths: parseFloat(propertyData.baths),
-        squareFeet: parseInt(propertyData.squareFeet || "0"),
+        pricePerMonth:     parseFloat(propertyData.pricePerMonth),
+        securityDeposit:   parseFloat(propertyData.securityDeposit || "0"),
+        applicationFee:    parseFloat(propertyData.applicationFee || "0"),
+        beds:              parseInt(propertyData.beds),
+        baths:             parseFloat(propertyData.baths),
+        squareFeet:        propertyData.squareFeet ? parseInt(propertyData.squareFeet) : 0,
       },
       include: { location: true, manager: true },
     });
 
-    console.log(`✅ Property created: ${newProperty.name}`);
+    console.log(`✅ Property created: ${newProperty.name} — ${area ? area + ", " : ""}${city}, ${region}`);
     res.status(201).json(newProperty);
   } catch (error: any) {
     console.error("❌ Error creating property:", error.message);
@@ -229,7 +384,7 @@ export const createProperty = async (req: Request, res: Response): Promise<void>
   }
 };
 
-// ─── GET PROPERTY LEASES ──────────────────────────────────────────────────────
+// ── GET PROPERTY LEASES ───────────────────────────────────
 export const getPropertyLeases = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;

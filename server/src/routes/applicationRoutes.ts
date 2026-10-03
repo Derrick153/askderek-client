@@ -1,4 +1,7 @@
-import { Router } from "express";
+// applicationRoutes.ts
+
+import { Router }      from "express";
+import { requireAuth } from "@clerk/express";
 import {
   listApplications,
   createApplication,
@@ -7,13 +10,15 @@ import {
 
 const router = Router();
 
-// List applications (with optional query params: userId, userType)
-router.get("/", listApplications);
+// List applications — returns only the caller's own applications
+// (as tenant) or applications for the caller's own properties (as manager)
+router.get("/", requireAuth(), listApplications);
 
-// Create new application
-router.post("/", createApplication);
+// Create new application — tenant identity comes from the verified session
+router.post("/", requireAuth(), createApplication);
 
-// Update application status
-router.put("/:id/status", updateApplicationStatus);
+// Update application status — manager (property owner) or admin only,
+// verified inside the controller
+router.put("/:id/status", requireAuth(), updateApplicationStatus);
 
 export default router;

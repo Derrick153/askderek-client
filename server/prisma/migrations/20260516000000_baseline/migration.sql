@@ -1,0 +1,4 @@
+-- Placeholder for migration 20260516000000_baseline.
+-- This migration was already applied directly to the production database on 2026-05-16.
+-- The original SQL was not preserved locally; this file exists only to keep
+-- Prisma's migration history in sync. No SQL runs from this file.

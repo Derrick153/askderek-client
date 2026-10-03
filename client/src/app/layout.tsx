@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
+﻿import type { Metadata }   from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-import Providers from "./providers";
-import { Toaster } from "@/components/ui/sonner";
-import { ClerkProvider } from "@clerk/nextjs";
+import "./globals.css";  
+import Providers            from "./providers";
+import { Toaster }          from "@/components/ui/sonner";
+import { ClerkProvider }    from "@clerk/nextjs";
+import ClerkTokenSync       from "@/components/ClerkTokenSync";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,8 +28,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        suppressHydrationWarning
+      >
         <ClerkProvider>
+          <ClerkTokenSync />
           <Providers>{children}</Providers>
           <Toaster closeButton />
         </ClerkProvider>

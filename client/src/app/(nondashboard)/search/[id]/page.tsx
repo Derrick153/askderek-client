@@ -1,5 +1,7 @@
 import SingleListing from "./SingleListing";
 
-export default function PropertyPage() {
+const Page = () => {
   return <SingleListing />;
-}
+};
+
+export default Page;

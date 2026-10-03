@@ -1,23 +1,35 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import {
   getManager,
   createManager,
   updateManager,
   getManagerProperties,
+  submitVerification,
+  getVerificationStatus,
 } from "../controllers/managerControllers";
+import { authMiddleware } from "../middleware/authMiddleware";
+import { upload } from "../middleware/upload";
 
 const router = Router();
 
-// Create new manager
+// ── PUBLIC ROUTES ─────────────────────────────────────────
 router.post("/", createManager);
 
-// Get properties managed by a manager (must be before /:userId)
-router.get("/:userId/properties", getManagerProperties);
+// ── VERIFICATION ──────────────────────────────────────────
+router.get("/verification/status", authMiddleware(), getVerificationStatus);
+router.post(
+  "/verification/submit",
+  authMiddleware(),
+  upload.fields([
+    { name: "ghanaCardFront", maxCount: 1 },
+    { name: "ghanaCardBack", maxCount: 1 },
+  ]),
+  submitVerification
+);
 
-// Get manager by userId
-router.get("/:userId", getManager);
-
-// Update manager
-router.put("/:userId", updateManager);
+// ── PROTECTED ROUTES ──────────────────────────────────────
+router.get("/:userId/properties", authMiddleware(), getManagerProperties);
+router.get("/:userId", authMiddleware(), getManager);
+router.put("/:userId", authMiddleware(), updateManager);
 
 export default router;

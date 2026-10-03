@@ -1,15 +1,42 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
+  binaryTargets   = ["native", "rhel-openssl-1.0.x", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
   directUrl  = env("DIRECT_URL")
-  extensions = [postgis]
+  extensions = [pg_graphql, pg_stat_statements, pgcrypto, postgis, uuid_ossp(map: "uuid-ossp", schema: "extensions")]
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  ENUMS
+//
+//  Enums enforce that only valid values are stored in the database.
+//  TypeScript catches invalid values at compile time — not at runtime.
+//  This prevents bugs like storing "Pendingg" instead of "Pending".
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Who performed an audit action ─────────────────────────────────────────────
+// system = automated cron job or background task
+// admin  = Derek or authorized staff taking a manual action
+// user   = tenant or landlord doing something on their account
+enum AuditActor {
+  system
+  admin
+  user
+}
+
+// ── User roles on the platform ────────────────────────────────────────────────
+enum Role {
+  TENANT
+  MANAGER
+  ADMIN
+}
+
+// ── Property highlights shown on listing cards ────────────────────────────────
 enum Highlight {
   HighSpeedInternetAccess
   WasherDryer
@@ -32,6 +59,7 @@ enum Highlight {
   BoreHole
 }
 
+// ── Property amenities ────────────────────────────────────────────────────────
 enum Amenity {
   WasherDryer
   AirConditioning
@@ -55,6 +83,7 @@ enum Amenity {
   SemiFinished
 }
 
+// ── Types of properties on AskDerek ──────────────────────────────────────────
 enum PropertyType {
   Rooms
   SelfContained
@@ -69,12 +98,83 @@ enum PropertyType {
   CompoundHouse
 }
 
+// ── What kind of listing this property is ─────────────────────────────────────
+// FOR_RENT  = monthly or advance rent payments
+// FOR_SALE  = one-time full purchase
+// SHORT_STAY = hourly, daily, or weekly bookings
+// LAND      = land plot for sale
+// HOSTEL    = student accommodation by semester or month
+// OFFICE    = commercial office space
+enum ListingType {
+  FOR_RENT
+  FOR_SALE
+  SHORT_STAY
+  LAND
+  HOSTEL
+  OFFICE
+}
+
+// ── Current visibility status of a property ───────────────────────────────────
+// AVAILABLE       = live and searchable by everyone
+// UNDER_OFFER     = someone is negotiating — still visible
+// SOLD            = sale completed — removed from search
+// RENTED          = tenant moved in — removed from search
+// ARCHIVED        = manager hid it — data preserved
+// PENDING_REMOVAL = admin triggered removal — 10 min undo window
+// SUSPENDED       = temporarily blocked by admin
+// DELETED         = soft deleted — hidden from all — data preserved forever
+enum ListingStatus {
+  AVAILABLE
+  UNDER_OFFER
+  SOLD
+  RENTED
+  ARCHIVED
+  PENDING_REMOVAL
+  SUSPENDED
+  DELETED
+}
+
+// ── Why a property was soft deleted ───────────────────────────────────────────
+enum DeleteType {
+  REMOVED_BY_ADMIN
+  SUSPENDED
+  SPAM
+  DUPLICATE
+  LANDLORD_REQUEST
+  FRAUDULENT
+}
+
+// ── Payment durations available for a property ────────────────────────────────
+enum DurationType {
+  HOURLY
+  DAILY
+  WEEKLY
+  MONTHLY
+  SEMESTER
+  SIX_MONTHS
+  YEARLY
+  FULL_PAYMENT
+  INSTALLMENT
+}
+
+// ── Hostel booking closing type ───────────────────────────────────────────────
+// FIXED           = owner sets exact end date at booking
+// SCHOOL_CALENDAR = follows school announcement — updated by admin
+// OPEN_ENDED      = student pays monthly and leaves when ready
+enum ClosingType {
+  FIXED
+  SCHOOL_CALENDAR
+  OPEN_ENDED
+}
+
+// ── Tenant application status ─────────────────────────────────────────────────
 enum ApplicationStatus {
   Pending
   Denied
   Approved
 }
 
+// ── Rent payment status ───────────────────────────────────────────────────────
 enum PaymentStatus {
   Pending
   Paid
@@ -82,79 +182,351 @@ enum PaymentStatus {
   Overdue
 }
 
+// ── Property admin approval status ────────────────────────────────────────────
+enum PropertyStatus {
+  Pending
+  Approved
+  Rejected
+}
+
+// ── Landlord Ghana Card verification status ───────────────────────────────────
+enum VerificationStatus {
+  Pending
+  Approved
+  Rejected
+}
+
+// ── Paystack transaction status ───────────────────────────────────────────────
+enum TransactionStatus {
+  Pending
+  Success
+  Failed
+  Refunded
+}
+
+// ── What kind of transaction this is ─────────────────────────────────────────
+enum TransactionType {
+  RentPayment
+  SecurityDeposit
+  ApplicationFee
+  Commission
+  HostelPayment
+}
+
+// ── Enquiry status — tracks the full deal pipeline ───────────────────────────
+// NEW         = buyer just submitted enquiry
+// CONTACTED   = landlord has replied
+// NEGOTIATING = price discussion in progress
+// AGREED      = price agreed — waiting for payment
+// COMPLETED   = money paid — deal fully done
+// LOST        = buyer went elsewhere — deal fell through
+enum EnquiryStatus {
+  NEW
+  CONTACTED
+  NEGOTIATING
+  AGREED
+  COMPLETED
+  LOST
+}
+
+// ── Booking status for short stay properties ──────────────────────────────────
+enum BookingStatus {
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  NO_SHOW
+  CANCELLED
+}
+
+// ── Hostel booking status ─────────────────────────────────────────────────────
+enum RoomGender {
+  MALE
+  FEMALE
+  MIXED
+}
+
+enum HostelBookingStatus {
+  ACTIVE
+  EXPIRING
+  COMPLETED
+  EXTENDED
+  EXPIRED
+  PENDING_APPROVAL
+  AWAITING_PAYMENT
+  REJECTED
+  CANCELLED
+}
+
+// ── Notification priority levels ──────────────────────────────────────────────
+// HIGH   = property removed · lease frozen · payment failed
+// NORMAL = expiry reminders · payment due
+// LOW    = promotions · platform updates
+enum NotificationPriority {
+  HIGH
+  NORMAL
+  LOW
+}
+
+// ── Lease status ──────────────────────────────────────────────────────────────
+// FROZEN = property was removed but lease existed — Derek handles manually
+enum LeaseStatus {
+  ACTIVE
+  EXPIRING_SOON
+  EXPIRING_URGENT
+  EXPIRED
+  RENEWED
+  FROZEN
+  TERMINATED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  USER
+//
+//  Central user model — every person on AskDerek has one User record.
+//  Clerk handles authentication. This table stores platform-specific data.
+//  One user can be a Tenant OR a Manager — never both at the same time.
+//  isSuperAdmin is Derek only — never set to true for any other account.
+// ─────────────────────────────────────────────────────────────────────────────
+model User {
+  id              Int      @id @default(autoincrement())
+  clerkId         String   @unique
+  email           String   @unique
+  name            String
+  phoneNumber     String?
+  role            Role     @default(TENANT)
+  isActive        Boolean  @default(true)
+  isPhoneVerified Boolean  @default(false)
+  isSuperAdmin    Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  manager   Manager?
+  tenant    Tenant?
+  auditLogs AuditLog[]
+
+  @@index([clerkId])
+  @@index([email])
+  @@index([role])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  MANAGER (LANDLORD)
+//
+//  A Manager is a landlord who lists properties on AskDerek.
+//  They must verify their Ghana Card before listings go live.
+//  One Manager can have many properties and many enquiries.
+// ─────────────────────────────────────────────────────────────────────────────
+model Manager {
+  id         Int     @id @default(autoincrement())
+  clerkId    String  @unique
+  isVerified Boolean @default(false)
+  userId     Int     @unique
+
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  managedProperties Property[]
+  verification      LandlordVerification?
+  commissions       Commission[]
+  enquiries         Enquiry[]
+
+  @@index([clerkId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  TENANT
+//
+//  A Tenant is someone looking for a property to rent or buy.
+//  They can save favorites, submit applications, pay rent, make bookings,
+//  and send enquiries about properties they are interested in.
+// ─────────────────────────────────────────────────────────────────────────────
+model Tenant {
+  id          Int     @id @default(autoincrement())
+  clerkId     String  @unique
+  phoneNumber String?
+  userId      Int     @unique
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  properties    Property[]     @relation("TenantProperties")
+  favorites     Property[]     @relation("TenantFavorites")
+  applications  Application[]
+  leases        Lease[]
+  propertyViews PropertyView[]
+  transactions  Transaction[]
+  bookings      Booking[]
+  enquiries     Enquiry[]
+
+  @@index([clerkId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PROPERTY
+//
+//  The core of AskDerek. Every property listed on the platform lives here.
+//  Properties go through an admin approval process before going live.
+//
+//  Soft delete system (enterprise standard — same as Airbnb and Stripe):
+//    deletedAt = null    → property is active and publicly visible
+//    deletedAt = date    → property was removed — all data preserved forever
+//    Never use isDeleted boolean alongside deletedAt — one source of truth.
+//
+//  Pending removal (10 minute undo window):
+//    When admin removes a property it enters PENDING_REMOVAL first.
+//    A cron job executes the soft delete at removalExecuteAt.
+//    Admin can cancel within 10 minutes via cancelPendingRemoval.
+// ─────────────────────────────────────────────────────────────────────────────
 model Property {
-  id                Int          @id @default(autoincrement())
+  id                Int            @id @default(autoincrement())
   name              String
   description       String
   pricePerMonth     Float
-  securityDeposit   Float
-  applicationFee    Float
+  securityDeposit   Float          @default(0)
+  applicationFee    Float          @default(0)
   photoUrls         String[]
   amenities         Amenity[]
   highlights        Highlight[]
-  isPetsAllowed     Boolean      @default(false)
-  isParkingIncluded Boolean      @default(false)
+  isPetsAllowed     Boolean        @default(false)
+  isParkingIncluded Boolean        @default(false)
   beds              Int
   baths             Float
-  squareFeet        Int
+  squareFeet        Int            @default(0)
   propertyType      PropertyType
-  postedDate        DateTime     @default(now())
-  averageRating     Float?       @default(0)
-  numberOfReviews   Int?         @default(0)
+  postedDate        DateTime       @default(now())
+  status            PropertyStatus @default(Pending)
+  averageRating     Float?         @default(0)
+  numberOfReviews   Int?           @default(0)
   locationId        Int
   managerClerkId    String
 
-  location     Location        @relation(fields: [locationId], references: [id])
-  manager      Manager         @relation(fields: [managerClerkId], references: [clerkId])
-  leases       Lease[]
-  applications Application[]
-  favoritedBy  Tenant[]        @relation("TenantFavorites")
-  tenants      Tenant[]        @relation("TenantProperties")
-  views        PropertyView[]
+  // ── Listing type and visibility status ───────────────────────────────────
+  listingType   ListingType   @default(FOR_RENT)
+  listingStatus ListingStatus @default(AVAILABLE)
+
+  // ── Sale fields ───────────────────────────────────────────────────────────
+  // Only populated when listingType is FOR_SALE or LAND
+  askingPrice   Float?
+  isNegotiable  Boolean   @default(false)
+  soldAt        DateTime?
+  soldPrice     Float?
+  soldToClerkId String?
+
+  // Hostel-specific fields - only populated when listingType is HOSTEL
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  rules                 String?
+
+  // ── Soft delete ───────────────────────────────────────────────────────────
+  // deletedAt = null means ACTIVE
+  // deletedAt = timestamp means REMOVED — data preserved permanently
+  deletedAt    DateTime?
+  deletedBy    String?
+  deleteReason String?
+  deleteType   DeleteType?
+
+  // ── Pending removal — 10 minute undo window ───────────────────────────────
+  pendingRemovalAt DateTime?
+  pendingRemovalBy String?
+  removalExecuteAt DateTime?
+
+  // ── Archive — manager level hide ─────────────────────────────────────────
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+  archivedBy String?
+
+  // ── Restore tracking ──────────────────────────────────────────────────────
+  restoredAt  DateTime?
+  restoredBy  String?
+  restoreCode String?   @unique
+
+  // ── System flags — set automatically — never manually ────────────────────
+  hasActiveDispute       Boolean @default(false)
+  requiresAdminAttention Boolean @default(false)
+
+  location      Location           @relation(fields: [locationId], references: [id])
+  manager       Manager            @relation(fields: [managerClerkId], references: [clerkId])
+  leases        Lease[]
+  applications  Application[]
+  favoritedBy   Tenant[]           @relation("TenantFavorites")
+  tenants       Tenant[]           @relation("TenantProperties")
+  views         PropertyView[]
+  reports       Report[]
+  bookings      Booking[]
+  enquiries     Enquiry[]
+  structures    PaymentStructure[]
+  semesterPlans SemesterPlan[]
+  rooms         Room[]
 
   @@index([managerClerkId])
   @@index([locationId])
   @@index([propertyType])
   @@index([pricePerMonth])
+  @@index([status])
+  @@index([postedDate])
+  @@index([listingType])
+  @@index([listingStatus])
+  @@index([deletedAt])
+  occupancySnapshots OccupancySnapshot[]
 }
 
-model Manager {
-  id          Int    @id @default(autoincrement())
-  clerkId     String @unique
-  name        String
-  email       String
-  phoneNumber String
+// ─────────────────────────────────────────────────────────────────────────────
+//  PAYMENT STRUCTURE
+//
+//  Defines available payment durations for a property.
+//  A house may offer monthly and yearly options.
+//  A short stay may offer hourly, daily and weekly.
+//  A hostel may offer monthly and semester.
+//  Each row is one available duration at one price in GHS.
+// ─────────────────────────────────────────────────────────────────────────────
+model PaymentStructure {
+  id             Int          @id @default(autoincrement())
+  propertyId     Int
+  roomId         Int?
+  durationType   DurationType
+  price          Float
+  isActive       Boolean      @default(true)
+  effectiveFrom  DateTime     @default(now())
+  effectiveUntil DateTime?
+  reason         String?
+  createdBy      String?
+  createdAt      DateTime     @default(now())
 
-  managedProperties Property[]
+  property Property @relation(fields: [propertyId], references: [id])
+  room     Room?    @relation(fields: [roomId], references: [id])
+
+  @@index([propertyId])
+  @@index([durationType])
+  @@index([propertyId, roomId, effectiveFrom, effectiveUntil])
 }
 
-model Tenant {
-  id          Int    @id @default(autoincrement())
-  clerkId     String @unique
-  name        String
-  email       String
-  phoneNumber String
-
-  properties     Property[]      @relation("TenantProperties")
-  favorites      Property[]      @relation("TenantFavorites")
-  applications   Application[]
-  leases         Lease[]
-  propertyViews  PropertyView[]
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
+//  LOCATION
+//
+//  Geographic data for every property.
+//  Uses PostGIS for coordinate storage and distance-based queries.
+//  Powers the map view and "properties near me" feature.
+// ─────────────────────────────────────────────────────────────────────────────
 model Location {
   id          Int                                   @id @default(autoincrement())
   address     String
   city        String
-  state       String
-  region      String?
+  state       String                                @default("Western")
+  region      String?                               @default("Western Region")
+  area        String?                               @default("")
   country     String                                @default("Ghana")
-  postalCode  String
+  postalCode  String                                @default("")
   coordinates Unsupported("geography(Point, 4326)")
+  properties  Property[]
 
-  properties Property[]
+  @@index([city])
+  @@index([region])
+  @@index([area])
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  APPLICATION
+//
+//  A tenant submits an application to rent a property.
+//  The manager reviews and approves or denies.
+//  On approval a Lease is automatically created.
+// ─────────────────────────────────────────────────────────────────────────────
 model Application {
   id              Int               @id @default(autoincrement())
   applicationDate DateTime          @default(now())
@@ -174,43 +546,576 @@ model Application {
   @@index([tenantClerkId])
   @@index([propertyId])
   @@index([status])
+  @@index([applicationDate])
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  LEASE
+//
+//  The legal rental agreement between a tenant and landlord.
+//  Created automatically when an application is approved.
+//
+//  Freeze system:
+//    When a property is soft deleted with an active lease,
+//    the lease is FROZEN — preserving the legal record and tenant rights.
+//    Derek must handle frozen leases manually.
+//    A frozen lease is never deleted — money was paid and rights exist.
+// ─────────────────────────────────────────────────────────────────────────────
 model Lease {
-  id            Int      @id @default(autoincrement())
+  id            Int         @id @default(autoincrement())
   startDate     DateTime
   endDate       DateTime
   rent          Float
-  deposit       Float
+  deposit       Float       @default(0)
   propertyId    Int
   tenantClerkId String
+  status        LeaseStatus @default(ACTIVE)
+  createdAt     DateTime    @default(now())
 
-  property    Property     @relation(fields: [propertyId], references: [id])
-  tenant      Tenant       @relation(fields: [tenantClerkId], references: [clerkId])
-  application Application?
-  payments    Payment[]
+  // ── Freeze state ──────────────────────────────────────────────────────────
+  isFrozen     Boolean   @default(false)
+  frozenAt     DateTime?
+  freezeReason String?
+
+  property      Property       @relation(fields: [propertyId], references: [id])
+  tenant        Tenant         @relation(fields: [tenantClerkId], references: [clerkId])
+  application   Application?
+  payments      Payment[]
+  transactions  Transaction[]
+  notifications Notification[]
 
   @@index([tenantClerkId])
   @@index([propertyId])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([status])
+  @@index([propertyId, status])
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  PAYMENT
+//
+//  A single rent payment record — one per month per lease.
+//  When a tenant pays 2 years advance, 24 records are created all as Paid.
+//
+//  Immutable lock:
+//    isLocked = true is set immediately after Paystack confirms success.
+//    Once locked no code can ever update or delete this record.
+//    Not even Derek. This is how banks and Stripe protect payment data.
+// ─────────────────────────────────────────────────────────────────────────────
 model Payment {
   id                Int           @id @default(autoincrement())
   amountDue         Float
-  amountPaid        Float
+  amountPaid        Float         @default(0)
   dueDate           DateTime
   paymentDate       DateTime?
   paymentStatus     PaymentStatus @default(Pending)
-  leaseId           Int
+  leaseId           Int?
+  semesterPlanId    Int?
   paystackReference String?       @unique
+  createdAt         DateTime      @default(now())
 
-  lease Lease @relation(fields: [leaseId], references: [id])
+  // ── Immutable lock ────────────────────────────────────────────────────────
+  isLocked Boolean   @default(false)
+  lockedAt DateTime?
+
+  lease        Lease?        @relation(fields: [leaseId], references: [id])
+  semesterPlan SemesterPlan? @relation(fields: [semesterPlanId], references: [id])
+  transactions Transaction[]
+  logs         PaymentLog[]
+  receipt      Receipt?
 
   @@index([leaseId])
   @@index([paymentStatus])
   @@index([dueDate])
+  @@index([paystackReference])
+  @@index([isLocked])
+  @@index([paymentStatus, paymentDate])
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  TRANSACTION
+//
+//  Records every Paystack transaction attempt — successful or not.
+//  A single Payment can have multiple Transactions if the tenant
+//  attempted payment and failed before finally succeeding.
+// ─────────────────────────────────────────────────────────────────────────────
+model Transaction {
+  id                String            @id @default(cuid())
+  paystackReference String?
+  amount            Float             @default(0)
+  currency          String            @default("GHS")
+  status            TransactionStatus @default(Pending)
+  type              TransactionType   @default(RentPayment)
+  channel           String?
+  event             String?
+  triggeredBy       String?
+  paidAt            DateTime?
+  tenantClerkId     String?
+  leaseId           Int?
+  semesterPlanId    Int?
+  paymentId         Int?
+  metadata          Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  tenant       Tenant?       @relation(fields: [tenantClerkId], references: [clerkId])
+  lease        Lease?        @relation(fields: [leaseId], references: [id])
+  semesterPlan SemesterPlan? @relation(fields: [semesterPlanId], references: [id])
+  payment      Payment?      @relation(fields: [paymentId], references: [id])
+  commission   Commission?
+
+  @@index([paystackReference])
+  @@index([tenantClerkId])
+  @@index([leaseId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([status, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  COMMISSION
+//
+//  Derek's 5% revenue record for every successful payment.
+//  Every GHS AskDerek earns is permanently recorded here.
+//  grossAmount = what tenant paid
+//  commissionAmount = Derek's 5%
+//  netAmount = landlord's 95%
+// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+//  BOOKING TRANSITION HISTORY
+//
+//  One authoritative, append-only record of every hostel booking status
+//  change, written exclusively by the centralized transition service.
+//  This is the real data source for the student/manager booking timeline.
+// -----------------------------------------------------------------------------
+model BookingTransitionHistory {
+  id           Int      @id @default(autoincrement())
+  bookingId    Int
+  fromStatus   String
+  toStatus     String
+  actorClerkId String
+  actorRole    String
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  booking SemesterPlan @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId])
+  @@index([createdAt])
+}
+
+model Commission {
+  id               String    @id @default(cuid())
+  transactionId    String    @unique
+  managerClerkId   String
+  grossAmount      Float
+  commissionRate   Float
+  commissionAmount Float
+  netAmount        Float
+  isPaid           Boolean   @default(false)
+  paidAt           DateTime?
+  createdAt        DateTime  @default(now())
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+  manager     Manager     @relation(fields: [managerClerkId], references: [clerkId])
+
+  @@index([managerClerkId])
+  @@index([isPaid])
+  @@index([createdAt])
+  @@index([managerClerkId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ENQUIRY
+//
+//  Records buyer interest in a property — the full deal pipeline.
+//  All contact goes through AskDerek — no direct phone numbers ever shared.
+//  Tracks every stage from first interest to completed sale.
+//
+//  Status flow:
+//    NEW → CONTACTED → NEGOTIATING → AGREED → COMPLETED
+//                                           → LOST (any stage)
+//
+//  Commission is calculated at AGREED stage and locked at COMPLETED.
+//  response field stores the landlord's quick reply preview.
+//  Full conversation history lives in the Message model.
+// ─────────────────────────────────────────────────────────────────────────────
+model Enquiry {
+  id              Int           @id @default(autoincrement())
+  propertyId      Int
+  enquirerClerkId String
+  managerClerkId  String
+  enquiryType     String
+  status          EnquiryStatus @default(NEW)
+  offeredPrice    Float?
+  agreedPrice     Float?
+  commissionDue   Float?
+  notes           String?
+  completedAt     DateTime?
+  updatedAt       DateTime      @default(now()) @updatedAt
+
+  // ── Read tracking ─────────────────────────────────────────────────────────
+  // isRead = false means manager has not seen this enquiry yet
+  // Used to power the unread badge on the manager dashboard
+  isRead Boolean   @default(false)
+  readAt DateTime?
+
+  // ── Response preview ──────────────────────────────────────────────────────
+  // Quick reply preview — not the full conversation
+  // Full conversation lives in Message model
+  response    String?
+  respondedAt DateTime?
+
+  // ── Soft archive ──────────────────────────────────────────────────────────
+  // Either buyer or manager can archive an enquiry
+  // Data preserved — never hard deleted
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  property Property  @relation(fields: [propertyId], references: [id])
+  manager  Manager   @relation(fields: [managerClerkId], references: [clerkId])
+  enquirer Tenant    @relation(fields: [enquirerClerkId], references: [clerkId])
+  messages Message[]
+
+  @@index([propertyId])
+  @@index([enquirerClerkId])
+  @@index([managerClerkId])
+  @@index([status])
+  @@index([isArchived])
+  @@index([isRead])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  MESSAGE
+//
+//  Protected messaging between buyers and landlords via AskDerek.
+//  Derek can see every message — no direct contact allowed.
+//  Phone numbers and emails are filtered automatically before storage.
+//
+//  Redaction system:
+//    Messages are never deleted — only redacted when needed.
+//    isRedacted = true masks content from users but preserves the record.
+//    Derek can always see the original for dispute resolution.
+// ─────────────────────────────────────────────────────────────────────────────
+model Message {
+  id             Int      @id @default(autoincrement())
+  enquiryId      Int
+  senderClerkId  String
+  content        String
+  createdAt      DateTime @default(now())
+  idempotencyKey String?  @unique
+
+  // ── Redaction ─────────────────────────────────────────────────────────────
+  isRedacted   Boolean   @default(false)
+  redactedAt   DateTime?
+  redactedBy   String?
+  redactReason String?
+
+  enquiry Enquiry @relation(fields: [enquiryId], references: [id])
+
+  @@index([enquiryId])
+  @@index([senderClerkId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  BOOKING
+//
+//  Short stay bookings — hourly, daily, or weekly rentals.
+//  Different from a Lease which covers long term rental.
+//  A Booking has a specific check-in and check-out datetime.
+// ─────────────────────────────────────────────────────────────────────────────
+model Booking {
+  id           Int           @id @default(autoincrement())
+  propertyId   Int
+  guestClerkId String
+  checkIn      DateTime
+  checkOut     DateTime
+  totalAmount  Float
+  durationType DurationType
+  status       BookingStatus @default(CONFIRMED)
+  reference    String        @unique
+  paystackRef  String?
+  createdAt    DateTime      @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id])
+  guest    Tenant   @relation(fields: [guestClerkId], references: [clerkId])
+
+  @@index([propertyId])
+  @@index([guestClerkId])
+  @@index([checkIn])
+  @@index([checkOut])
+  @@index([status])
+  @@index([propertyId, status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SEMESTER PLAN
+//
+//  Hostel bookings paid per semester or monthly.
+//  Closing date can be fixed, follow school calendar, or open ended.
+//  When closingType = SCHOOL_CALENDAR, admin updates endDate
+//  when the school announces and all linked students are notified.
+// ─────────────────────────────────────────────────────────────────────────────
+model SemesterPlan {
+  id                 Int                 @id @default(autoincrement())
+  propertyId         Int
+  studentClerkId     String
+  semesterName       String
+  checkIn            DateTime
+  closingType        ClosingType
+  fixedEndDate       DateTime?
+  schoolId           Int?
+  actualEndDate      DateTime?
+  checkedInAt        DateTime?
+  checkedInBy        String?
+  noShowMarkedAt     DateTime?
+  paymentDueAt       DateTime?
+  cancelledAt        DateTime?
+  cancelledBy        String?
+  cancellationReason String?
+  roomNumber         String?
+  bedId              Int?
+  amountPaid         Float
+  paymentStructureId Int?
+  reference          String              @unique
+  status             HostelBookingStatus @default(ACTIVE)
+  createdAt          DateTime            @default(now())
+
+  // ── Relations ────────────────────────────────────────
+  property          Property                   @relation(fields: [propertyId], references: [id])
+  bed               Bed?                       @relation(fields: [bedId], references: [id])
+  school            School?                    @relation(fields: [schoolId], references: [id])
+  payments          Payment[]
+  transactions      Transaction[]
+  transitionHistory BookingTransitionHistory[]
+  notifications     Notification[]
+
+  @@index([studentClerkId])
+  @@index([propertyId])
+  @@index([status])
+  @@index([schoolId])
+  @@index([propertyId, createdAt])
+  @@index([status, createdAt])
+}
+
+// -----------------------------------------------------------------------------
+//  TRANSFER REASON
+//
+//  Why a student was moved from one bed to another.
+// -----------------------------------------------------------------------------
+enum TransferReason {
+  ROOM_MAINTENANCE
+  STUDENT_REQUEST
+  OCCUPANCY_REBALANCING
+  ACCESSIBILITY
+  DISCIPLINARY
+  OTHER
+}
+
+// -----------------------------------------------------------------------------
+//  BED TRANSFER
+//
+//  Append-only record of a student being moved from one bed to another.
+//  Never updated or deleted - a correction is a new compensating transfer,
+//  never an edit to history. Room/bed numbers are stored as text snapshots
+//  (same pattern as SemesterPlan.roomNumber) so a transfer record still
+//  reads clearly even if a room is later renamed or removed. IDs are plain
+//  fields, not Prisma relations - matching how Bed.currentBookingId and
+//  SemesterPlan.studentClerkId already represent identity in this schema.
+// -----------------------------------------------------------------------------
+model BedTransfer {
+  id             Int            @id @default(autoincrement())
+  bookingId      Int
+  propertyId     Int
+  studentClerkId String
+  fromBedId      Int
+  fromRoomNumber String
+  fromBedNumber  String
+  toBedId        Int
+  toRoomNumber   String
+  toBedNumber    String
+  reason         TransferReason
+  reasonNote     String?
+  oldBedStatus   BedStatus
+  performedBy    String
+  createdAt      DateTime       @default(now())
+
+  @@index([bookingId])
+  @@index([propertyId])
+  @@index([studentClerkId])
+  @@index([fromBedId])
+  @@index([toBedId])
+}
+
+// -----------------------------------------------------------------------------
+//  BED STATUS HISTORY
+//
+//  Append-only structured log of every bed status change - checkout,
+//  booking, approval, rejection, manual toggle, transfer, retirement.
+//  logUserEvent/logSystemEvent still fire alongside this for the shared
+//  audit trail - this table exists so status history can be queried
+//  directly, without parsing free-text audit details.
+// -----------------------------------------------------------------------------
+model BedStatusHistory {
+  id               Int       @id @default(autoincrement())
+  bedId            Int
+  oldStatus        BedStatus
+  newStatus        BedStatus
+  action           String
+  performedBy      String
+  reason           String?
+  bookingId        Int?
+  bookingReference String?
+  createdAt        DateTime  @default(now())
+
+  @@index([bedId])
+  @@index([createdAt])
+}
+
+// -----------------------------------------------------------------------------
+//  HOSTEL ROOM INVENTORY
+//
+//  A Room belongs to a Property (where listingType = HOSTEL).
+//  A Room has one or more Beds � each Bed is independently bookable.
+//  Occupancy is never stored � it is always calculated from live Bed
+//  status, to avoid the classic counter-drift bug where a stored
+//  "availableBeds" number silently goes out of sync with reality.
+// -----------------------------------------------------------------------------
+
+model Room {
+  id            Int         @id @default(autoincrement())
+  propertyId    Int
+  roomNumber    String
+  block         String?
+  floor         String?
+  gender        RoomGender?
+  capacity      Int
+  isActive      Boolean     @default(true)
+  semesterPrice Float?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  property          Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  beds              Bed[]
+  paymentStructures PaymentStructure[]
+
+  @@unique([propertyId, roomNumber])
+  @@index([propertyId])
+}
+
+model Bed {
+  id               Int       @id @default(autoincrement())
+  roomId           Int
+  bedNumber        String
+  status           BedStatus @default(AVAILABLE)
+  createdAt        DateTime  @default(now())
+  currentBookingId Int?
+  updatedAt        DateTime  @updatedAt
+
+  room          Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  semesterPlans SemesterPlan[]
+  isRetired     Boolean        @default(false)
+  retiredAt     DateTime?
+  retiredReason String?
+  retiredBy     String?
+
+  @@unique([roomId, bedNumber])
+  @@index([roomId])
+  @@index([status])
+}
+
+enum BedStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  MAINTENANCE
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SCHOOL
+//
+//  Schools linked to hostel semester bookings.
+//  Admin updates semester closing dates when schools announce them.
+//  Triggers automatic SMS notifications to all affected students.
+// ─────────────────────────────────────────────────────────────────────────────
+model School {
+  id                 Int                           @id @default(autoincrement())
+  name               String
+  location           String
+  createdAt          DateTime                      @default(now())
+  institutionType    InstitutionType?
+  aliases            String[]                      @default([])
+  verificationStatus InstitutionVerificationStatus @default(UNVERIFIED)
+  isActive           Boolean                       @default(true)
+  semesters          SchoolSemester[]
+  campuses           Campus[]
+  bookings           SemesterPlan[]
+
+  @@index([name])
+}
+
+enum InstitutionType {
+  PUBLIC_UNIVERSITY
+  PRIVATE_UNIVERSITY
+  PUBLIC_TECHNICAL_UNIVERSITY
+  PRIVATE_TERTIARY_INSTITUTION
+  UNIVERSITY_COLLEGE
+  OTHER
+}
+
+enum InstitutionVerificationStatus {
+  ACTIVE_VERIFIED
+  UNVERIFIED
+  NOT_CURRENTLY_RECOGNIZED
+}
+
+model Campus {
+  id          Int                                    @id @default(autoincrement())
+  schoolId    Int
+  name        String
+  city        String
+  region      String?
+  coordinates Unsupported("geography(Point, 4326)")?
+  isActive    Boolean                                @default(true)
+  createdAt   DateTime                               @default(now())
+
+  school School @relation(fields: [schoolId], references: [id])
+
+  @@index([schoolId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SCHOOL SEMESTER
+//
+//  Tracks semester dates per school.
+//  isConfirmed = false until admin updates after school announces.
+//  endDate = null until school officially announces closing date.
+// ─────────────────────────────────────────────────────────────────────────────
+model SchoolSemester {
+  id           Int       @id @default(autoincrement())
+  schoolId     Int
+  semesterName String
+  startDate    DateTime
+  endDate      DateTime?
+  isConfirmed  Boolean   @default(false)
+  confirmedAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  school School @relation(fields: [schoolId], references: [id])
+
+  @@index([schoolId])
+  @@index([semesterName])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PROPERTY VIEW
+//
+//  Tracks which tenants viewed which properties and when.
+//  Powers analytics — most viewed properties, peak times.
+//  Helps landlords understand their listing performance.
+// ─────────────────────────────────────────────────────────────────────────────
 model PropertyView {
   id            String   @id @default(cuid())
   tenantClerkId String
@@ -224,4 +1129,342 @@ model PropertyView {
   @@index([propertyId])
   @@index([viewedAt])
   @@map("property_views")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  LANDLORD VERIFICATION
+//
+//  Ghana Card verification for managers before listings go live.
+//  Both front and back photo required.
+//  Admin reviews and approves or rejects with reason.
+// ─────────────────────────────────────────────────────────────────────────────
+model LandlordVerification {
+  id                Int                @id @default(autoincrement())
+  managerClerkId    String             @unique
+  ghanaCardFrontUrl String
+  ghanaCardBackUrl  String
+  phoneNumber       String
+  status            VerificationStatus @default(Pending)
+  rejectionReason   String?
+  submittedAt       DateTime           @default(now())
+  reviewedAt        DateTime?
+  reviewedByAdminId Int?
+
+  manager Manager @relation(fields: [managerClerkId], references: [clerkId])
+
+  @@index([status])
+  @@index([managerClerkId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  BLACKLIST
+//
+//  Permanently banned users — cannot re-register on AskDerek.
+//  Matched against phone number, email, or Ghana Card ID on registration.
+//  Used for confirmed scammers, fraudulent landlords, and bad tenants.
+// ─────────────────────────────────────────────────────────────────────────────
+model Blacklist {
+  id          Int      @id @default(autoincrement())
+  phoneNumber String?
+  email       String?
+  ghanaCardId String?
+  reason      String
+  createdAt   DateTime @default(now())
+  createdBy   Int
+
+  @@index([phoneNumber])
+  @@index([email])
+  @@index([ghanaCardId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  REPORT
+//
+//  Users can report suspicious or fraudulent listings.
+//  Admin reviews and resolves each report.
+//  Unresolved reports automatically flag the property for admin attention.
+// ─────────────────────────────────────────────────────────────────────────────
+model Report {
+  id          Int       @id @default(autoincrement())
+  propertyId  Int
+  reportedBy  String
+  reason      String
+  description String?
+  isResolved  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  Int?
+
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId])
+  @@index([isResolved])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  AUDIT LOG
+//
+//  Court-level evidence system — records every important platform action.
+//  This table is NEVER cleared and NEVER modified after writing.
+//  Used for dispute resolution, legal accountability, and fraud detection.
+//
+//  Three actor types enforced by AuditActor enum:
+//    system = automated cron jobs and background tasks
+//    admin  = Derek or staff taking a manual action
+//    user   = tenant or landlord action
+//
+//  adminId is optional — system and user events have no admin attached.
+// ─────────────────────────────────────────────────────────────────────────────
+model AuditLog {
+  id          Int                  @id @default(autoincrement())
+  performedBy AuditActor           @default(system)
+  adminId     Int?
+  admin       User?                @relation(fields: [adminId], references: [id])
+  action      String
+  target      String
+  details     String?
+  priority    NotificationPriority @default(NORMAL)
+  createdAt   DateTime             @default(now())
+
+  @@index([adminId])
+  @@index([createdAt])
+  @@index([action])
+  @@index([performedBy])
+  @@index([priority])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  OTP
+//
+//  One-time passwords sent via Arkesel SMS for phone verification.
+//  Expires after 10 minutes. Required before applying or listing.
+// ─────────────────────────────────────────────────────────────────────────────
+model OTP {
+  id        String   @id @default(cuid())
+  clerkId   String
+  otp       String
+  phone     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([clerkId])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PAYMENT LOG
+//
+//  Detailed stage-by-stage history of every payment on AskDerek.
+//  Different from AuditLog — this is payment-specific and granular.
+//  One Payment can have many PaymentLog entries as it moves through stages.
+//
+//  Example trail for a single GHS 700 rent payment:
+//    PAYMENT_INITIALIZED → PAYMENT_PENDING → PAYMENT_SUCCESS
+// ─────────────────────────────────────────────────────────────────────────────
+model PaymentLog {
+  id             String   @id @default(cuid())
+  paymentId      Int
+  action         String
+  previousStatus String?
+  newStatus      String?
+  performedBy    String
+  ipAddress      String?
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+enum NotificationCategory {
+  BOOKING
+  APPROVAL
+  PAYMENT
+  CHECK_IN
+  CHECK_OUT
+  HOSTEL
+  SEMESTER
+  SYSTEM
+}
+
+model Notification {
+  id          Int                  @id @default(autoincrement())
+  userClerkId String
+  category    NotificationCategory
+  title       String
+  message     String
+  bookingId   Int?
+  leaseId     Int?
+  actionUrl   String?
+  isRead      Boolean              @default(false)
+  createdAt   DateTime             @default(now())
+
+  booking    SemesterPlan?          @relation(fields: [bookingId], references: [id])
+  lease      Lease?                 @relation(fields: [leaseId], references: [id])
+  deliveries NotificationDelivery[]
+
+  @@index([userClerkId, isRead])
+  @@index([userClerkId, createdAt])
+}
+
+enum EventType {
+  BOOKING_SUBMITTED
+  BOOKING_APPROVED
+  BOOKING_REJECTED
+  BOOKING_CANCELLED
+  BOOKING_EXPIRED
+  PAYMENT_SUCCESSFUL
+  RENT_PAYMENT_SUCCESSFUL
+  PAYMENT_FAILED
+  RENT_PAYMENT_FAILED
+  CASH_PAYMENT_RECORDED
+  PAYMENT_REQUIRED
+  BED_ASSIGNMENT_CHANGED
+  CHECK_IN_APPROACHING
+  CHECK_IN_COMPLETED
+  CHECK_OUT_APPROACHING
+  CHECK_OUT_COMPLETED
+  HOSTEL_ANNOUNCEMENT
+  SYSTEM_ANNOUNCEMENT
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+model NotificationEvent {
+  id             Int          @id @default(autoincrement())
+  eventType      EventType
+  entityType     String
+  entityId       Int
+  idempotencyKey String       @unique
+  payload        Json
+  status         OutboxStatus @default(PENDING)
+  attempts       Int          @default(0)
+  lastAttemptAt  DateTime?
+  nextAttemptAt  DateTime?
+  lastError      String?
+  processedAt    DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([status, nextAttemptAt])
+  @@index([entityType, entityId])
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+enum DeliveryStatus {
+  QUEUED
+  PROCESSING
+  SENT
+  DELIVERED
+  FAILED
+  RETRYING
+  CANCELLED
+}
+
+model NotificationDelivery {
+  id                Int                 @id @default(autoincrement())
+  notificationId    Int
+  channel           NotificationChannel
+  deliveryKey       String              @unique
+  status            DeliveryStatus      @default(QUEUED)
+  provider          String?
+  providerMessageId String?
+  attempts          Int                 @default(0)
+  lastAttemptAt     DateTime?
+  lastError         String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+  @@index([status, channel])
+  @@index([status, attempts])
+}
+
+model NotificationPreference {
+  id          Int                  @id @default(autoincrement())
+  userClerkId String
+  category    NotificationCategory
+  channel     NotificationChannel
+  enabled     Boolean              @default(true)
+
+  @@unique([userClerkId, category, channel])
+  @@index([userClerkId])
+}
+
+// -----------------------------------------------------------------------------
+//  RECEIPT
+//
+//  Step 18. The official document representation of a verified Payment.
+//  One Payment produces at most one Receipt (paymentId is unique).
+//  Every financial/identity field below is a frozen historical snapshot
+//  taken at the moment the receipt is created - never recalculated from
+//  current pricing, current property data, or current user profiles.
+// -----------------------------------------------------------------------------
+model Receipt {
+  id                Int       @id @default(autoincrement())
+  receiptNumber     String    @unique
+
+  paymentId         Int       @unique
+  payment           Payment   @relation(fields: [paymentId], references: [id])
+
+  leaseId           Int?
+  semesterPlanId    Int?
+
+  amountPaid        Float
+  currency          String    @default("GHS")
+  paymentDate       DateTime
+  paymentMethod     String
+  paymentReference  String
+
+  recipientName     String
+  recipientClerkId  String
+  managerClerkId    String?
+  propertyName      String
+  roomNumber        String?
+  bedNumber         String?
+  semesterName      String?
+  bookingReference  String?
+
+  generatedAt       DateTime  @default(now())
+
+  @@index([recipientClerkId])
+  @@index([managerClerkId])
+  @@index([leaseId])
+  @@index([semesterPlanId])
+}
+
+model OccupancySnapshot {
+  id            Int      @id @default(autoincrement())
+  propertyId    Int
+  property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  snapshotDate  DateTime @db.Date
+
+  totalRooms    Int
+  totalBeds     Int
+  available     Int
+  reserved      Int
+  occupied      Int
+  maintenance   Int
+  retired       Int
+
+  createdAt     DateTime @default(now())
+
+  @@unique([propertyId, snapshotDate])
+  @@index([propertyId, snapshotDate])
+  @@index([snapshotDate])
 }

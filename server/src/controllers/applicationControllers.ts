@@ -1,26 +1,46 @@
-﻿import { Request, Response } from "express";
+﻿// applicationControllers.ts
+
+import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 
-// ─── LIST APPLICATIONS ────────────────────────────────────────────────────────
+// ── SHARED HELPER ─────────────────────────────────────────
+// Extracts userId from verified Clerk JWT.
+// Identity must always come from the token — never from req.query or req.body.
+const requireAuth = (req: Request, res: Response): string | null => {
+  const userId = req.auth?.().userId;
+  if (!userId) {
+    res.status(401).json({ message: "Unauthorized" });
+    return null;
+  }
+  return userId;
+};
+
+// ─── LIST APPLICATIONS ────────────────────────────────────
 export const listApplications = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { userId, userType } = req.query;
+    const callerClerkId = requireAuth(req, res);
+    if (!callerClerkId) return;
 
-    if (!userId || !userType) {
-      res.status(400).json({ message: "userId and userType are required" });
+    const { userType } = req.query;
+
+    if (!userType) {
+      res.status(400).json({ message: "userType is required" });
       return;
     }
 
     let whereClause = {};
 
+    // userId is no longer read from the query — the caller can only
+    // ever see their own applications (as tenant) or applications for
+    // their own properties (as manager).
     if (userType === "tenant") {
-      whereClause = { tenantClerkId: String(userId) };
+      whereClause = { tenantClerkId: callerClerkId };
     } else if (userType === "manager") {
       whereClause = {
-        property: { managerClerkId: String(userId) },
+        property: { managerClerkId: callerClerkId },
       };
     } else {
       res.status(400).json({ message: "userType must be 'tenant' or 'manager'" });
@@ -33,10 +53,14 @@ export const listApplications = async (
         property: {
           include: {
             location: true,
-            manager: true,
+            manager: {
+              include: { user: true },
+            },
           },
         },
-        tenant: true,
+        tenant: {
+          include: { user: true },
+        },
         lease: true,
       },
       orderBy: { applicationDate: "desc" },
@@ -57,7 +81,16 @@ export const listApplications = async (
         ...app.property,
         address: app.property.location.address,
       },
-      manager: app.property.manager,
+      tenant: {
+        ...app.tenant,
+        name: app.tenant.user.name,
+        email: app.tenant.user.email,
+      },
+      manager: {
+        ...app.property.manager,
+        name: app.property.manager?.user?.name,
+        email: app.property.manager?.user?.email,
+      },
       lease: app.lease
         ? {
             ...app.lease,
@@ -73,17 +106,20 @@ export const listApplications = async (
   }
 };
 
-// ─── CREATE APPLICATION ───────────────────────────────────────────────────────
+// ─── CREATE APPLICATION ───────────────────────────────────
 export const createApplication = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { propertyId, tenantClerkId, name, email, phoneNumber, message } = req.body;
+    const tenantClerkId = requireAuth(req, res);
+    if (!tenantClerkId) return;
 
-    if (!propertyId || !tenantClerkId || !name || !email || !phoneNumber) {
+    const { propertyId, name, email, phoneNumber, message } = req.body;
+
+    if (!propertyId || !name || !email || !phoneNumber) {
       res.status(400).json({
-        message: "propertyId, tenantClerkId, name, email, and phoneNumber are required",
+        message: "propertyId, name, email, and phoneNumber are required",
       });
       return;
     }
@@ -100,7 +136,7 @@ export const createApplication = async (
     const existing = await prisma.application.findFirst({
       where: {
         propertyId: Number(propertyId),
-        tenantClerkId: String(tenantClerkId),
+        tenantClerkId,
         status: { in: ["Pending", "Approved"] },
       },
     });
@@ -112,20 +148,35 @@ export const createApplication = async (
       return;
     }
 
+    // ✅ Find or create tenant — identity is the verified session, not client input
     let tenant = await prisma.tenant.findUnique({
-      where: { clerkId: String(tenantClerkId) },
+      where: { clerkId: tenantClerkId },
     });
 
     if (!tenant) {
-      tenant = await prisma.tenant.create({
-        data: {
-          clerkId: String(tenantClerkId),
+      // ✅ Create User first
+      const user = await prisma.user.upsert({
+        where: { clerkId: tenantClerkId },
+        update: { name, email, phoneNumber },
+        create: {
+          clerkId: tenantClerkId,
           name,
           email,
           phoneNumber,
+          role: "TENANT",
         },
       });
-      console.log("✅ New tenant created:", tenant.name);
+
+      // ✅ Create Tenant profile
+      tenant = await prisma.tenant.create({
+        data: {
+          clerkId: tenantClerkId,
+          userId: user.id,
+          phoneNumber,
+        },
+      });
+
+      console.log("✅ New tenant created:", user.name);
     }
 
     const application = await prisma.application.create({
@@ -137,11 +188,18 @@ export const createApplication = async (
         phoneNumber,
         message: message || "",
         property: { connect: { id: Number(propertyId) } },
-        tenant: { connect: { clerkId: String(tenantClerkId) } },
+        tenant: { connect: { clerkId: tenantClerkId } },
       },
       include: {
-        property: { include: { location: true, manager: true } },
-        tenant: true,
+        property: {
+          include: {
+            location: true,
+            manager: { include: { user: true } },
+          },
+        },
+        tenant: {
+          include: { user: true },
+        },
       },
     });
 
@@ -153,12 +211,15 @@ export const createApplication = async (
   }
 };
 
-// ─── UPDATE APPLICATION STATUS ────────────────────────────────────────────────
+// ─── UPDATE APPLICATION STATUS ────────────────────────────
 export const updateApplicationStatus = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
+    const callerClerkId = requireAuth(req, res);
+    if (!callerClerkId) return;
+
     const { id } = req.params;
     const { status } = req.body;
 
@@ -172,11 +233,31 @@ export const updateApplicationStatus = async (
 
     const application = await prisma.application.findUnique({
       where: { id: Number(id) },
-      include: { property: true, tenant: true },
+      include: {
+        property: true,
+        tenant: { include: { user: true } },
+      },
     });
 
     if (!application) {
       res.status(404).json({ message: "Application not found" });
+      return;
+    }
+
+    // Authorization — caller must be the manager who owns this property,
+    // or an admin. Checked via database, not trusted from the request.
+    const caller = await prisma.user.findUnique({
+      where: { clerkId: callerClerkId },
+      select: { role: true },
+    });
+
+    const isOwningManager = application.property.managerClerkId === callerClerkId;
+    const isAdmin = caller?.role === "ADMIN";
+
+    if (!isOwningManager && !isAdmin) {
+      res.status(403).json({
+        message: "You do not have permission to update this application",
+      });
       return;
     }
 
@@ -243,8 +324,15 @@ export const updateApplicationStatus = async (
     const updated = await prisma.application.findUnique({
       where: { id: Number(id) },
       include: {
-        property: { include: { location: true, manager: true } },
-        tenant: true,
+        property: {
+          include: {
+            location: true,
+            manager: { include: { user: true } },
+          },
+        },
+        tenant: {
+          include: { user: true },
+        },
         lease: true,
       },
     });

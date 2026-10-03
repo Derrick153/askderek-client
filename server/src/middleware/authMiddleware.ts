@@ -1,53 +1,49 @@
-import { Request, Response, NextFunction, RequestHandler } from "express";
-import { ClerkExpressRequireAuth } from "@clerk/clerk-sdk-node";
+﻿import { Request, Response, NextFunction, RequestHandler } from "express";
+import { verifyToken }                                     from "@clerk/backend";
+import { prisma }                                          from "../lib/prisma";
 
-declare global {
-  namespace Express {
-    interface Request {
-      auth?: {
-        userId: string;
-        sessionId: string;
-        orgId?: string;
-      };
-      user?: {
-        id: string;
-      };
-    }
-  }
-}
-
-export const authMiddleware = (allowedRoles?: string[]): RequestHandler => {
-  return (req: Request, res: Response, next: NextFunction): any => {
-    const clerkMiddleware = ClerkExpressRequireAuth() as any;
-    
-    clerkMiddleware(req, res, (err?: any) => {
-      if (err) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-
-      if (!req.auth?.userId) {
-        return res.status(401).json({ message: "Unauthorized - No user ID" });
-      }
-
-      req.user = {
-        id: req.auth.userId,
-      };
-
-      next();
+const verifyClerkToken = async (req: Request): Promise<string | null> => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) return null;
+    const token   = authHeader.split(" ")[1];
+    const payload = await verifyToken(token, {
+      secretKey: process.env.CLERK_SECRET_KEY!,
     });
+    return payload.sub ?? null;
+  } catch (e) {
+    return null;
+  }
+};
+
+export const authMiddleware = (allowedRoles?: string[]): RequestHandler =>
+  async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+    const userId = await verifyClerkToken(req);
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+    (req as any).auth = { userId, sessionId: "" };
+    if (allowedRoles?.length) {
+      const user = await prisma.user.findUnique({ where: { clerkId: userId }, select: { role: true, isActive: true } });
+      if (!user || !allowedRoles.includes(user.role)) return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+    next();
   };
-};
 
-export const requireTenant: RequestHandler = (req: Request, res: Response, next: NextFunction): any => {
-  if (!req.auth?.userId) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-  next();
-};
+export const requireTenant: RequestHandler =
+  async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+    const userId = await verifyClerkToken(req);
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+    (req as any).auth = { userId, sessionId: "" };
+    const user = await prisma.user.findUnique({ where: { clerkId: userId }, select: { role: true } });
+    if (!user || (user.role !== "TENANT" && user.role !== "ADMIN")) return res.status(403).json({ success: false, message: "Forbidden" });
+    next();
+  };
 
-export const requireManager: RequestHandler = (req: Request, res: Response, next: NextFunction): any => {
-  if (!req.auth?.userId) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-  next();
-};
+export const requireManager: RequestHandler =
+  async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+    const userId = await verifyClerkToken(req);
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+    (req as any).auth = { userId, sessionId: "" };
+    const user = await prisma.user.findUnique({ where: { clerkId: userId }, select: { role: true } });
+    if (!user || (user.role !== "MANAGER" && user.role !== "ADMIN")) return res.status(403).json({ success: false, message: "Forbidden" });
+    next();
+  };
