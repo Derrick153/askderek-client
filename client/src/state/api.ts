@@ -565,6 +565,58 @@ export interface ReportingTrends {
   occupancy: ReportingOccupancyPoint[];
   generatedAt: string;
 }
+
+// ---- Step 19 Phase 6b: hostel insights types (mirror getHostelInsights in server/src/lib/reportingService.ts) ----
+export interface ReportingHostelArgs {
+  propertyId?: number;
+  managerClerkId?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface ReportingSemesterRow {
+  key: string;
+  name: string;
+  total: number;
+  byStatus: Record<string, number>;
+  received: number;
+  awaitingPayment: number;
+}
+
+export interface ReportingAcademicYear {
+  label: string;
+  start: number;
+  totals: { total: number; received: number; awaitingPayment: number; byStatus: Record<string, number> };
+  semesters: ReportingSemesterRow[];
+  hiddenSemesters: number;
+}
+
+export interface ReportingMaintenanceBed {
+  bedId: number;
+  bedNumber: string;
+  roomNumber: string;
+  propertyId: number;
+  propertyName: string;
+  since: string;
+  sinceRecorded: boolean;
+  days: number;
+}
+
+export interface ReportingMaintenance {
+  inMaintenanceNow: number;
+  openBeds: ReportingMaintenanceBed[];
+  period: { entered: number; fixed: number; retired: number; stillOpen: number; avgDaysToFix: number | null };
+}
+
+export interface ReportingHostel {
+  scope: { propertyId?: number; managerClerkId?: string };
+  range: { from: string; to: string };
+  academicYearRule: string;
+  academicYears: ReportingAcademicYear[];
+  maintenance: ReportingMaintenance;
+  generatedAt: string;
+}
+
 const TAG_TYPES = [
   "Auth",
   "Managers",
@@ -1928,6 +1980,22 @@ getBookingTimeline: build.query<{ booking: { id: number; reference: string; stat
         await withToast(queryFulfilled, { error: "Failed to load trends." });
       },
     }),
+    getReportingHostel: build.query({
+      query: (args: ReportingHostelArgs) => {
+        const params = new URLSearchParams();
+        if (args.propertyId !== undefined) params.set("propertyId", String(args.propertyId));
+        if (args.managerClerkId) params.set("managerClerkId", args.managerClerkId);
+        if (args.from) params.set("from", args.from);
+        if (args.to) params.set("to", args.to);
+        const qs = params.toString();
+        return qs ? "reports/hostel?" + qs : "reports/hostel";
+      },
+      transformResponse: (response: any): ReportingHostel => response?.data ?? response,
+      providesTags: ["Reports"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { error: "Failed to load hostel insights." });
+      },
+    }),
     getHostelOccupancy: build.query<
       any[],
       { propertyId: number; level: string; block?: string; floor?: string; roomId?: number }
@@ -2476,6 +2544,7 @@ export const {
   useGetHostelStatisticsQuery,
   useGetReportingOverviewQuery,
   useGetReportingTrendsQuery,
+  useGetReportingHostelQuery,
   useGetHostelOccupancyQuery,
   useGetHostelAttentionCenterQuery,
   useUpdateRoomMutation,

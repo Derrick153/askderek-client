@@ -7,6 +7,7 @@ import {
   useGetManagerPropertiesQuery,
   useGetReportingOverviewQuery,
   useGetReportingTrendsQuery,
+  useGetReportingHostelQuery,
 } from "@/state/api";
 import type { ReportingOverview, ReportingTrends } from "@/state/api";
 import {
@@ -38,6 +39,7 @@ import {
   formatTime,
   rangeForPreset,
 } from "@/components/reports/reportHelpers";
+import { HostelInsights } from "@/components/reports/HostelInsights";
 
 // ---------------------------------------------------------------------------
 // Step 19 - Executive Overview + Trends for managers.
@@ -89,6 +91,16 @@ export default function ManagerReportsPage() {
     refetch: refetchTrends,
   } = useGetReportingTrendsQuery(trendArgs, { skip: !user?.id || !data });
 
+  // Hostel insights are requested last (after the overview and trends), so the free database is never asked for all three at once.
+  const {
+    data: hostel,
+    isFetching: hostelFetching,
+    isError: hostelError,
+    refetch: refetchHostel,
+  } = useGetReportingHostelQuery(args, {
+    skip: !user?.id || !data || (!trends && !trendsError),
+  });
+
   const scopeLabel =
     propertyId === null
       ? "All your properties"
@@ -105,6 +117,7 @@ export default function ManagerReportsPage() {
           onClick={() => {
             refetch();
             if (data) refetchTrends();
+            if (data) refetchHostel();
           }}
           disabled={isFetching || !user?.id}
           className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
@@ -181,7 +194,8 @@ export default function ManagerReportsPage() {
         <ReportBody
           data={data}
           isFetching={isFetching}
-          trendsSection={
+          hostelSection={<HostelInsights hostel={hostel} isFetching={hostelFetching} isError={hostelError} onRetry={() => refetchHostel()} />}
+        trendsSection={
             <TrendsSection
               trends={trends}
               isFetching={trendsFetching}
@@ -300,10 +314,12 @@ function ReportBody({
   data,
   isFetching,
   trendsSection,
+  hostelSection,
 }: {
   data: ReportingOverview;
   isFetching: boolean;
   trendsSection: ReactNode;
+  hostelSection: ReactNode;
 }) {
   const occ = data.occupancy;
   const rev = data.revenue;
@@ -375,6 +391,7 @@ function ReportBody({
       </div>
 
       {trendsSection}
+      {hostelSection}
 
       <SectionCard title="Approvals and cancellations" subtitle="Requests that were decided and bookings that fell through, in this period">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">

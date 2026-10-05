@@ -695,6 +695,8 @@ export async function getTrends(scope: ReportScope, range: DateRange, g: TrendGr
 //      stillOpen = of those, no later change yet
 //      avgDaysToFix = average days until back in use (null when none were fixed)
 //    - inMaintenanceNow / openBeds = beds in MAINTENANCE right now (a snapshot, not the period).
+//      since = date of the last recorded maintenance entry. sinceRecorded = false means no entry exists
+//      (a bed set before history was logged, or changed by hand), so since is only the bed's last update.
 // =============================================================================
 
 type StatusCounts = { [status: string]: number };
@@ -711,7 +713,7 @@ interface SemesterRow {
 const AY_START_SQL = Prisma.sql`CASE WHEN EXTRACT(MONTH FROM sp."checkIn") >= 8 THEN EXTRACT(YEAR FROM sp."checkIn")::int ELSE EXTRACT(YEAR FROM sp."checkIn")::int - 1 END`;
 const SEM_KEY_SQL = Prisma.sql`COALESCE(NULLIF(lower(btrim(regexp_replace(regexp_replace(sp."semesterName", '[[:space:]]+', ' ', 'g'), '[[:space:]]*/[[:space:]]*', '/', 'g'))), ''), '(no name)')`;
 
-const MAX_SEMESTERS_PER_YEAR = 10;
+const MAX_SEMESTERS_PER_YEAR = 40;
 
 export async function getHostelInsights(scope: ReportScope, range: DateRange) {
   const ids = await resolvePropertyIds(scope);
@@ -794,13 +796,14 @@ export async function getHostelInsights(scope: ReportScope, range: DateRange) {
       };
     });
 
-  const openRows = await prisma.$queryRaw<{ bedId: number; bedNumber: string; roomNumber: string; propertyId: number; propertyName: string; since: Date; total: number }[]>(Prisma.sql`
+  const openRows = await prisma.$queryRaw<{ bedId: number; bedNumber: string; roomNumber: string; propertyId: number; propertyName: string; since: Date; recorded: boolean; total: number }[]>(Prisma.sql`
     SELECT b."id" AS "bedId",
            b."bedNumber" AS "bedNumber",
            r."roomNumber" AS "roomNumber",
            r."propertyId" AS "propertyId",
            pr."name" AS "propertyName",
            COALESCE(m."since", b."updatedAt") AS "since",
+           (m."since" IS NOT NULL) AS "recorded",
            (COUNT(*) OVER ())::int AS "total"
     FROM "Bed" b
     JOIN "Room" r ON r."id" = b."roomId"
@@ -856,6 +859,7 @@ export async function getHostelInsights(scope: ReportScope, range: DateRange) {
         propertyId: r.propertyId,
         propertyName: r.propertyName,
         since: since.toISOString(),
+        sinceRecorded: r.recorded,
         days: Math.max(0, Math.floor((now - since.getTime()) / 86400000)),
       };
     }),
