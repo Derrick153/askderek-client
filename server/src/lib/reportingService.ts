@@ -1,4 +1,4 @@
-﻿import { prisma } from "./prisma";
+import { prisma } from "./prisma";
 
 // -----------------------------------------------------------------------------
 //  reportingService.ts
@@ -170,47 +170,98 @@ export async function getOccupancyMetrics(scope: ReportScope) {
 export async function getRevenueMetrics(scope: ReportScope, range: DateRange) {
   const payScope = paymentPropertyScope(scope);
 
-  const [bookingValueAgg, receivedAgg, failedAgg, refundedAgg, outstandingAgg] =
-    await Promise.all([
-      prisma.payment.aggregate({
-        where: { createdAt: { gte: range.from, lte: range.to }, ...payScope },
-        _sum: { amountDue: true },
-      }),
-      prisma.payment.aggregate({
-        where: {
-          paymentDate: { gte: range.from, lte: range.to },
-          paymentStatus: { in: ["Paid", "PartiallyPaid"] },
-          ...payScope,
-        },
-        _sum: { amountPaid: true },
-      }),
-      prisma.transaction.aggregate({
-        where: { createdAt: { gte: range.from, lte: range.to }, status: "Failed", ...payScope },
-        _sum: { amount: true },
-      }),
-      prisma.transaction.aggregate({
-        where: { createdAt: { gte: range.from, lte: range.to }, status: "Refunded", ...payScope },
-        _sum: { amount: true },
-      }),
-      prisma.payment.aggregate({
-        where: {
-          dueDate: { lte: range.to },
-          paymentStatus: { in: ["Pending", "PartiallyPaid", "Overdue"] },
-          ...payScope,
-        },
-        _sum: { amountDue: true, amountPaid: true },
-      }),
-    ]);
+  // received  = money actually collected (payment ledger), with a Hostel / Rent split.
+  // outstanding = rent still owed on the ledger + hostel bookings that were approved
+  //   but are not paid yet (those have no ledger row until the student pays).
+  const [
+    bookingValueAgg,
+    receivedAgg,
+    receivedHostelAgg,
+    receivedRentAgg,
+    failedAgg,
+    refundedAgg,
+    ledgerOutstandingAgg,
+    hostelAwaitingAgg,
+  ] = await Promise.all([
+    prisma.payment.aggregate({
+      where: { createdAt: { gte: range.from, lte: range.to }, ...payScope },
+      _sum: { amountDue: true },
+    }),
+    prisma.payment.aggregate({
+      where: {
+        paymentDate: { gte: range.from, lte: range.to },
+        paymentStatus: { in: ["Paid", "PartiallyPaid"] },
+        ...payScope,
+      },
+      _sum: { amountPaid: true },
+    }),
+    prisma.payment.aggregate({
+      where: {
+        paymentDate: { gte: range.from, lte: range.to },
+        paymentStatus: { in: ["Paid", "PartiallyPaid"] },
+        ...payScope,
+        semesterPlan: { isNot: null },
+      },
+      _sum: { amountPaid: true },
+    }),
+    prisma.payment.aggregate({
+      where: {
+        paymentDate: { gte: range.from, lte: range.to },
+        paymentStatus: { in: ["Paid", "PartiallyPaid"] },
+        ...payScope,
+        lease: { isNot: null },
+      },
+      _sum: { amountPaid: true },
+    }),
+    prisma.transaction.aggregate({
+      where: { createdAt: { gte: range.from, lte: range.to }, status: "Failed", ...payScope },
+      _sum: { amount: true },
+    }),
+    prisma.transaction.aggregate({
+      where: { createdAt: { gte: range.from, lte: range.to }, status: "Refunded", ...payScope },
+      _sum: { amount: true },
+    }),
+    prisma.payment.aggregate({
+      where: {
+        dueDate: { lte: range.to },
+        paymentStatus: { in: ["Pending", "PartiallyPaid", "Overdue"] },
+        ...payScope,
+      },
+      _sum: { amountDue: true, amountPaid: true },
+    }),
+    prisma.semesterPlan.aggregate({
+      where: {
+        status: "AWAITING_PAYMENT",
+        createdAt: { lte: range.to },
+        ...directPropertyScope(scope),
+      },
+      _sum: { amountPaid: true },
+    }),
+  ]);
 
-  const outstandingDue  = outstandingAgg._sum.amountDue  ?? 0;
-  const outstandingPaid = outstandingAgg._sum.amountPaid ?? 0;
+  const received = receivedAgg._sum.amountPaid ?? 0;
+  const receivedHostel = receivedHostelAgg._sum.amountPaid ?? 0;
+  const receivedRent = receivedRentAgg._sum.amountPaid ?? 0;
+
+  const ledgerOutstanding =
+    (ledgerOutstandingAgg._sum.amountDue ?? 0) - (ledgerOutstandingAgg._sum.amountPaid ?? 0);
+  const hostelAwaitingPayment = hostelAwaitingAgg._sum.amountPaid ?? 0;
 
   return {
     bookingValue: bookingValueAgg._sum.amountDue ?? 0,
-    received:     receivedAgg._sum.amountPaid ?? 0,
-    failed:       failedAgg._sum.amount ?? 0,
-    refunded:     refundedAgg._sum.amount ?? 0,
-    outstanding:  outstandingDue - outstandingPaid,
+    received,
+    receivedByProduct: {
+      hostel: receivedHostel,
+      rent: receivedRent,
+      other: received - receivedHostel - receivedRent,
+    },
+    failed: failedAgg._sum.amount ?? 0,
+    refunded: refundedAgg._sum.amount ?? 0,
+    outstanding: ledgerOutstanding + hostelAwaitingPayment,
+    outstandingBreakdown: {
+      ledger: ledgerOutstanding,
+      hostelAwaitingPayment,
+    },
   };
 }
 

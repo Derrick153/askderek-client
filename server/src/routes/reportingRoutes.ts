@@ -1,9 +1,11 @@
-﻿import { Router } from "express";
-import { requireAuth } from "@clerk/express";
+import { Router } from "express";
+import { authMiddleware } from "../middleware/authMiddleware";
 import { getReportingOverview } from "../controllers/reportingControllers";
 
 const router = Router();
 
-router.get("/overview", requireAuth(), getReportingOverview);
+// Managers see their own properties; admins see platform-wide.
+// Fine-grained scope checks happen inside the controller (resolveReportScope).
+router.get("/overview", authMiddleware(["MANAGER", "ADMIN"]), getReportingOverview);
 
 export default router;

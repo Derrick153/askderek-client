@@ -1,4 +1,4 @@
-﻿import { Request, Response } from "express";
+import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 import {
   ReportScope,
@@ -118,14 +118,14 @@ export const getReportingOverview = async (req: Request, res: Response): Promise
 
   try {
     const [occupancy, revenue, collectionRate, bookings, cancellation, approval, roomUtilization] =
-      await Promise.all([
-        getOccupancyMetrics(scope),
-        getRevenueMetrics(scope, range),
-        getCollectionRate(scope, range),
-        getBookingMetrics(scope, range),
-        getCancellationRates(scope, range),
-        getApprovalRates(scope, range),
-        getRoomUtilization(scope),
+      await runSequentially([
+        () => getOccupancyMetrics(scope),
+        () => getRevenueMetrics(scope, range),
+        () => getCollectionRate(scope, range),
+        () => getBookingMetrics(scope, range),
+        () => getCancellationRates(scope, range),
+        () => getApprovalRates(scope, range),
+        () => getRoomUtilization(scope),
       ]);
 
     res.status(200).json({
@@ -149,3 +149,14 @@ export const getReportingOverview = async (req: Request, res: Response): Promise
     res.status(500).json({ success: false, message: `Error generating report: ${error.message}` });
   }
 };
+
+// Runs the report queries ONE AFTER ANOTHER instead of all at once. The free database
+// plan allows only a few connections, and firing ~25 queries together can starve
+// booking and payment requests. Slower by a little, much safer.
+async function runSequentially(tasks: any[]) {
+  const out: any[] = [];
+  for (const task of tasks) {
+    out.push(await task());
+  }
+  return out;
+}
