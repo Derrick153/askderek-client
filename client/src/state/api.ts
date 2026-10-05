@@ -483,6 +483,49 @@ export interface TenantLeaseStatus {
 // TAG TYPES
 // -----------------------------------------------------------------------------
 
+// ---- Step 19: reporting types (mirror server/src/lib/reportingService.ts) ----
+export interface ReportingOverviewArgs {
+  propertyId?: number;
+  managerClerkId?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface ReportingOverview {
+  scope: { propertyId?: number; managerClerkId?: string };
+  range: { from: string; to: string };
+  occupancy: {
+    totalRooms: number; totalBeds: number; retiredBeds: number;
+    available: number; reserved: number; occupied: number; maintenance: number;
+    occupancyRate: number | null; utilizationRate: number | null;
+  };
+  revenue: {
+    bookingValue: number; received: number;
+    receivedByProduct: { hostel: number; rent: number; other: number };
+    failed: number; refunded: number; outstanding: number;
+    outstandingBreakdown: { ledger: number; hostelAwaitingPayment: number };
+  };
+  collectionRate: number | null;
+  bookings: {
+    total: number;
+    lease: { [status: string]: number };
+    shortStay: { [status: string]: number };
+    hostel: { [status: string]: number };
+  };
+  cancellation: {
+    hostel: { total: number; cancelled: number; rate: number | null };
+    shortStay: { total: number; cancelled: number; rate: number | null };
+  };
+  approval: {
+    hostel: { decided: number; approved: number; rejected: number; rate: number | null };
+    leaseApplication: { decided: number; approved: number; denied: number; rate: number | null };
+  };
+  roomUtilization: {
+    totalRooms: number; atCapacity: number; partiallyOccupied: number;
+    underutilized: number; unoccupied: number;
+  };
+  generatedAt: string;
+}
 const TAG_TYPES = [
   "Auth",
   "Managers",
@@ -1813,6 +1856,22 @@ getBookingTimeline: build.query<{ booking: { id: number; reference: string; stat
       },
     }),
 
+    getReportingOverview: build.query({
+      query: (args: ReportingOverviewArgs) => {
+        const params = new URLSearchParams();
+        if (args.propertyId !== undefined) params.set("propertyId", String(args.propertyId));
+        if (args.managerClerkId) params.set("managerClerkId", args.managerClerkId);
+        if (args.from) params.set("from", args.from);
+        if (args.to) params.set("to", args.to);
+        const qs = params.toString();
+        return qs ? "reports/overview?" + qs : "reports/overview";
+      },
+      transformResponse: (response: any): ReportingOverview => response?.data ?? response,
+      providesTags: ["Reports"],
+      async onQueryStarted(_, { queryFulfilled }){
+        await withToast(queryFulfilled, { error: "Failed to load report." });
+      },
+    }),
     getHostelOccupancy: build.query<
       any[],
       { propertyId: number; level: string; block?: string; floor?: string; roomId?: number }
@@ -2359,6 +2418,7 @@ export const {
   useGetHostelRoomsQuery,
   useGetPublicHostelRoomsQuery,
   useGetHostelStatisticsQuery,
+  useGetReportingOverviewQuery,
   useGetHostelOccupancyQuery,
   useGetHostelAttentionCenterQuery,
   useUpdateRoomMutation,

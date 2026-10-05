@@ -90,6 +90,11 @@ const AppSidebar = ({ userType }: AppSidebarProps) => {
         href:  "/managers/payments",
       },
       {
+        icon:  BarChart3,
+        label: "Reports",
+        href:  "/managers/reports",
+      },
+      {
         icon:  Shield,
         label: "Get Verified",
         href:  "/managers/verification",
