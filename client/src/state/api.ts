@@ -526,6 +526,45 @@ export interface ReportingOverview {
   };
   generatedAt: string;
 }
+// ---- Step 19 Phase 6: trend types (mirror getTrends in server/src/lib/reportingService.ts) ----
+export interface ReportingTrendsArgs {
+  propertyId?: number;
+  managerClerkId?: string;
+  from?: string;
+  to?: string;
+  granularity?: "day" | "week" | "month";
+}
+
+export interface ReportingTrendBucket {
+  date: string;
+  moneyHostel: number;
+  moneyRent: number;
+  moneyTotal: number;
+  bookingsHostel: number;
+  bookingsShortStay: number;
+  bookingsLease: number;
+  bookingsTotal: number;
+}
+
+export interface ReportingOccupancyPoint {
+  date: string;
+  totalBeds: number;
+  occupied: number;
+  reserved: number;
+  available: number;
+  maintenance: number;
+  occupancyRate: number | null;
+}
+
+export interface ReportingTrends {
+  scope: { propertyId?: number; managerClerkId?: string };
+  range: { from: string; to: string };
+  granularity: "day" | "week" | "month";
+  bucketCount: number;
+  buckets: ReportingTrendBucket[];
+  occupancy: ReportingOccupancyPoint[];
+  generatedAt: string;
+}
 const TAG_TYPES = [
   "Auth",
   "Managers",
@@ -1872,6 +1911,23 @@ getBookingTimeline: build.query<{ booking: { id: number; reference: string; stat
         await withToast(queryFulfilled, { error: "Failed to load report." });
       },
     }),
+    getReportingTrends: build.query({
+      query: (args: ReportingTrendsArgs) => {
+        const params = new URLSearchParams();
+        if (args.propertyId !== undefined) params.set("propertyId", String(args.propertyId));
+        if (args.managerClerkId) params.set("managerClerkId", args.managerClerkId);
+        if (args.from) params.set("from", args.from);
+        if (args.to) params.set("to", args.to);
+        if (args.granularity) params.set("granularity", args.granularity);
+        const qs = params.toString();
+        return qs ? "reports/trends?" + qs : "reports/trends";
+      },
+      transformResponse: (response: any): ReportingTrends => response?.data ?? response,
+      providesTags: ["Reports"],
+      async onQueryStarted(_, { queryFulfilled }){
+        await withToast(queryFulfilled, { error: "Failed to load trends." });
+      },
+    }),
     getHostelOccupancy: build.query<
       any[],
       { propertyId: number; level: string; block?: string; floor?: string; roomId?: number }
@@ -2419,6 +2475,7 @@ export const {
   useGetPublicHostelRoomsQuery,
   useGetHostelStatisticsQuery,
   useGetReportingOverviewQuery,
+  useGetReportingTrendsQuery,
   useGetHostelOccupancyQuery,
   useGetHostelAttentionCenterQuery,
   useUpdateRoomMutation,

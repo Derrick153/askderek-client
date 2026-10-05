@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { Prisma } from "@prisma/client";
 
 // -----------------------------------------------------------------------------
 //  reportingService.ts
@@ -486,4 +487,187 @@ export async function getRoomUtilization(scope: ReportScope) {
   }
 
   return { totalRooms: rooms.length, atCapacity, partiallyOccupied, underutilized, unoccupied };
+}
+
+// =============================================================================
+//  TRENDS  (Step 19, Phase 6)
+//
+//  The same money / booking / occupancy definitions as the overview, but split
+//  into day, week (Monday start) or month buckets so a manager can see
+//  direction, not just a total. Aggregation happens in the DATABASE
+//  (GROUP BY date_trunc); empty buckets are filled with zeros here so a chart
+//  has no holes. Buckets are in UTC, which equals Ghana time (no daylight saving).
+//
+//  Authorization is NOT handled here - the controller passes in a scope it has
+//  already verified (same rule as every other function in this file).
+// =============================================================================
+
+export type TrendGranularity = "day" | "week" | "month";
+
+const MAX_TREND_BUCKETS = 400;
+
+function pad2(n: number): string {
+  return n < 10 ? "0" + n : String(n);
+}
+
+function dayKey(d: Date): string {
+  return d.getUTCFullYear() + "-" + pad2(d.getUTCMonth() + 1) + "-" + pad2(d.getUTCDate());
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// First day of the bucket that contains d: the day itself, the Monday of its week, or the 1st of its month.
+function bucketStart(d: Date, g: TrendGranularity): Date {
+  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  if (g === "week") {
+    const dow = (x.getUTCDay() + 6) % 7; // Monday = 0
+    x.setUTCDate(x.getUTCDate() - dow);
+  } else if (g === "month") {
+    x.setUTCDate(1);
+  }
+  return x;
+}
+
+function nextBucket(d: Date, g: TrendGranularity): Date {
+  const x = new Date(d.getTime());
+  if (g === "month") x.setUTCMonth(x.getUTCMonth() + 1);
+  else x.setUTCDate(x.getUTCDate() + (g === "week" ? 7 : 1));
+  return x;
+}
+
+// Every bucket label ("YYYY-MM-DD" of the bucket start) inside the range. Stops just past the cap.
+export function trendBucketKeys(range: DateRange, g: TrendGranularity): string[] {
+  const keys: string[] = [];
+  let cur = bucketStart(range.from, g);
+  const last = bucketStart(range.to, g);
+  while (cur.getTime() <= last.getTime() && keys.length <= MAX_TREND_BUCKETS) {
+    keys.push(dayKey(cur));
+    cur = nextBucket(cur, g);
+  }
+  return keys;
+}
+
+// null = platform-wide (admin only). Otherwise the property ids the caller is allowed to see.
+async function resolvePropertyIds(scope: ReportScope): Promise<number[] | null> {
+  if (scope.propertyId !== undefined) return [scope.propertyId];
+  if (scope.managerClerkId) {
+    const props = await prisma.property.findMany({
+      where: { managerClerkId: scope.managerClerkId },
+      select: { id: true },
+    });
+    return props.map((p) => p.id);
+  }
+  return null;
+}
+
+// Only these three constant strings ever reach the SQL - never user input.
+function unitSql(g: TrendGranularity) {
+  return Prisma.raw(g === "month" ? "'month'" : g === "week" ? "'week'" : "'day'");
+}
+
+// Money actually collected (same rule as the overview "received"): Paid / PartiallyPaid payments by paymentDate.
+async function moneyTrend(ids: number[] | null, range: DateRange, g: TrendGranularity) {
+  const unit = unitSql(g);
+  const scopeSql =
+    ids === null
+      ? Prisma.sql`TRUE`
+      : Prisma.sql`COALESCE(l."propertyId", sp."propertyId") = ANY(${ids}::int[])`;
+
+  return prisma.$queryRaw<{ bucket: string; hostel: number; rent: number; total: number }[]>(Prisma.sql`
+    SELECT to_char(date_trunc(${unit}, p."paymentDate"), 'YYYY-MM-DD') AS bucket,
+           COALESCE(SUM(p."amountPaid") FILTER (WHERE p."semesterPlanId" IS NOT NULL), 0)::float8 AS hostel,
+           COALESCE(SUM(p."amountPaid") FILTER (WHERE p."leaseId" IS NOT NULL), 0)::float8 AS rent,
+           COALESCE(SUM(p."amountPaid"), 0)::float8 AS total
+    FROM "Payment" p
+    LEFT JOIN "Lease" l ON l."id" = p."leaseId"
+    LEFT JOIN "SemesterPlan" sp ON sp."id" = p."semesterPlanId"
+    WHERE p."paymentDate" >= ${range.from}
+      AND p."paymentDate" <= ${range.to}
+      AND p."paymentStatus" IN ('Paid', 'PartiallyPaid')
+      AND ${scopeSql}
+    GROUP BY 1
+    ORDER BY 1
+  `);
+}
+
+// New bookings (same rule as the overview): rows CREATED in the period, per product table.
+async function countTrend(
+  table: "Lease" | "Booking" | "SemesterPlan",
+  ids: number[] | null,
+  range: DateRange,
+  g: TrendGranularity
+) {
+  const unit = unitSql(g);
+  const tbl = Prisma.raw('"' + table + '"');
+  const scopeSql = ids === null ? Prisma.sql`TRUE` : Prisma.sql`"propertyId" = ANY(${ids}::int[])`;
+
+  return prisma.$queryRaw<{ bucket: string; n: number }[]>(Prisma.sql`
+    SELECT to_char(date_trunc(${unit}, "createdAt"), 'YYYY-MM-DD') AS bucket,
+           COUNT(*)::int AS n
+    FROM ${tbl}
+    WHERE "createdAt" >= ${range.from}
+      AND "createdAt" <= ${range.to}
+      AND ${scopeSql}
+    GROUP BY 1
+    ORDER BY 1
+  `);
+}
+
+export async function getTrends(scope: ReportScope, range: DateRange, g: TrendGranularity) {
+  const keys = trendBucketKeys(range, g);
+  const ids = await resolvePropertyIds(scope);
+
+  // One after another, never together: the free database allows only a few connections.
+  const money = await moneyTrend(ids, range, g);
+  const hostel = await countTrend("SemesterPlan", ids, range, g);
+  const shortStay = await countTrend("Booking", ids, range, g);
+  const lease = await countTrend("Lease", ids, range, g);
+
+  const snaps = await prisma.occupancySnapshot.groupBy({
+    by: ["snapshotDate"],
+    where: { ...directPropertyScope(scope), snapshotDate: { gte: range.from, lte: range.to } },
+    _sum: { totalBeds: true, occupied: true, reserved: true, available: true, maintenance: true },
+    orderBy: { snapshotDate: "asc" },
+  });
+
+  const moneyBy = new Map(money.map((r) => [r.bucket, r]));
+  const hostelBy = new Map(hostel.map((r) => [r.bucket, r.n]));
+  const shortBy = new Map(shortStay.map((r) => [r.bucket, r.n]));
+  const leaseBy = new Map(lease.map((r) => [r.bucket, r.n]));
+
+  const buckets = keys.map((date) => {
+    const m = moneyBy.get(date);
+    const h = hostelBy.get(date) ?? 0;
+    const s = shortBy.get(date) ?? 0;
+    const l = leaseBy.get(date) ?? 0;
+    return {
+      date,
+      moneyHostel: m ? round2(m.hostel) : 0,
+      moneyRent: m ? round2(m.rent) : 0,
+      moneyTotal: m ? round2(m.total) : 0,
+      bookingsHostel: h,
+      bookingsShortStay: s,
+      bookingsLease: l,
+      bookingsTotal: h + s + l,
+    };
+  });
+
+  // Occupancy history comes from the nightly snapshots, so it only goes back to when the job first ran.
+  const occupancy = snaps.map((s) => {
+    const totalBeds = s._sum.totalBeds ?? 0;
+    const occupied = s._sum.occupied ?? 0;
+    return {
+      date: dayKey(s.snapshotDate),
+      totalBeds,
+      occupied,
+      reserved: s._sum.reserved ?? 0,
+      available: s._sum.available ?? 0,
+      maintenance: s._sum.maintenance ?? 0,
+      occupancyRate: totalBeds > 0 ? occupied / totalBeds : (null as MetricValue),
+    };
+  });
+
+  return { granularity: g, bucketCount: keys.length, buckets, occupancy };
 }

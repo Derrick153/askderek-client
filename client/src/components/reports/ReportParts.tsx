@@ -9,14 +9,18 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
+  LineChart,
+  Line,
 } from "recharts";
-import type { ReportingOverview } from "@/state/api";
+import type { ReportingOverview, ReportingTrends } from "@/state/api";
 import {
   CHART_COLORS,
   formatCompact,
   formatMoney,
   formatPercent,
   prettyStatus,
+  formatBucket,
+  formatBucketLong,
 } from "./reportHelpers";
 
 // ---------------------------------------------------------------------------
@@ -184,6 +188,147 @@ export function BookingsBreakdown({ bookings }: { bookings: ReportingOverview["b
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Step 19 Phase 6 - trend charts
+// ---------------------------------------------------------------------------
+
+type TrendSeries = { key: string; label: string; color: string };
+
+const TOP_RADIUS: [number, number, number, number] = [4, 4, 0, 0];
+const NO_RADIUS: [number, number, number, number] = [0, 0, 0, 0];
+
+// Stacked columns over time (money by product, or bookings by product).
+export function TrendColumns({
+  data,
+  series,
+  granularity,
+  money,
+}: {
+  data: any[];
+  series: TrendSeries[];
+  granularity: string;
+  money?: boolean;
+}) {
+  const hasData = data.some((row: any) => series.some((s) => (row[s.key] || 0) > 0));
+  if (!hasData) {
+    return <p className="text-sm text-gray-500">Nothing to show for this period.</p>;
+  }
+  const show = (v: number) => (money ? formatMoney(v) : String(v));
+  return (
+    <div>
+      <ul className="mb-3 flex flex-wrap gap-x-4 gap-y-1">
+        {series.map((s) => (
+          <li key={s.key} className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: s.color }} />
+            <span className="text-sm text-gray-600">{s.label}</span>
+          </li>
+        ))}
+      </ul>
+      <div style={{ width: "100%", height: 240 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid vertical={false} stroke={CHART_COLORS.grid} />
+            <XAxis
+              dataKey="date"
+              tickLine={false}
+              axisLine={{ stroke: CHART_COLORS.axis }}
+              tick={{ fill: CHART_COLORS.muted, fontSize: 12 }}
+              tickFormatter={(d: string) => formatBucket(d, granularity)}
+              interval="preserveStartEnd"
+              minTickGap={16}
+            />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              width={44}
+              allowDecimals={false}
+              tick={{ fill: CHART_COLORS.muted, fontSize: 12 }}
+              tickFormatter={(v: number) => formatCompact(v)}
+            />
+            <Tooltip
+              cursor={{ fill: "#f4f3ef" }}
+              labelFormatter={(d: any) => formatBucketLong(String(d), granularity)}
+              formatter={(v: any, name: any) => [show(Number(v)), name]}
+            />
+            {series.map((s, i) => (
+              <Bar
+                key={s.key}
+                dataKey={s.key}
+                name={s.label}
+                stackId="trend"
+                fill={s.color}
+                stroke="#ffffff"
+                strokeWidth={2}
+                maxBarSize={24}
+                radius={i === series.length - 1 ? TOP_RADIUS : NO_RADIUS}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// Occupancy rate per night, from the nightly bed snapshots.
+export function OccupancyLine({ points }: { points: ReportingTrends["occupancy"] }) {
+  if (points.length < 2) {
+    return (
+      <div>
+        <p className="text-sm text-gray-500">
+          Not enough history yet. A snapshot of your beds is saved every night, so this chart fills in day by day.
+        </p>
+        {points.length === 1 ? (
+          <p className="mt-2 text-sm text-gray-700">
+            {formatBucketLong(points[0].date, "day")}: {formatPercent(points[0].occupancyRate)} occupied
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+  const data = points.map((p) => ({ date: p.date, rate: p.occupancyRate }));
+  return (
+    <div style={{ width: "100%", height: 220 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={CHART_COLORS.grid} />
+          <XAxis
+            dataKey="date"
+            tickLine={false}
+            axisLine={{ stroke: CHART_COLORS.axis }}
+            tick={{ fill: CHART_COLORS.muted, fontSize: 12 }}
+            tickFormatter={(d: string) => formatBucket(d, "day")}
+            interval="preserveStartEnd"
+            minTickGap={16}
+          />
+          <YAxis
+            domain={[0, 1]}
+            tickLine={false}
+            axisLine={false}
+            width={44}
+            tick={{ fill: CHART_COLORS.muted, fontSize: 12 }}
+            tickFormatter={(v: number) => Math.round(v * 100) + "%"}
+          />
+          <Tooltip
+            cursor={{ stroke: CHART_COLORS.axis }}
+            labelFormatter={(d: any) => formatBucketLong(String(d), "day")}
+            formatter={(v: any) => [formatPercent(Number(v)), "Occupancy"]}
+          />
+          <Line
+            type="monotone"
+            dataKey="rate"
+            stroke={CHART_COLORS.blue}
+            strokeWidth={2}
+            dot={{ r: 4, fill: CHART_COLORS.blue, stroke: "#ffffff", strokeWidth: 2 }}
+            activeDot={{ r: 5 }}
+            connectNulls={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }

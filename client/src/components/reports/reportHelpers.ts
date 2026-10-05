@@ -73,3 +73,25 @@ export const CHART_COLORS = {
   ink: "#0b0b0b",
   inkSecondary: "#52514e",
 };
+
+// Chart labels for a bucket start date such as "2026-09-21" (UTC).
+//   short (axis):    day or week -> "21 Sep",  month -> "Sep 2026"
+//   long (tooltip):  day -> "21 Sep 2026",  week -> "Week of 21 Sep 2026",  month -> "September 2026"
+export function formatBucket(date: string, granularity: string): string {
+  const d = new Date(date + "T00:00:00Z");
+  if (Number.isNaN(d.getTime())) return date;
+  if (granularity === "month") {
+    return d.toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+  }
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+export function formatBucketLong(date: string, granularity: string): string {
+  const d = new Date(date + "T00:00:00Z");
+  if (Number.isNaN(d.getTime())) return date;
+  if (granularity === "month") {
+    return d.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+  }
+  const label = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  return granularity === "week" ? "Week of " + label : label;
+}

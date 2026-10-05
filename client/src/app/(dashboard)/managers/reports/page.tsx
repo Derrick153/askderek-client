@@ -1,12 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useUser } from "@clerk/nextjs";
 import {
   useGetManagerPropertiesQuery,
   useGetReportingOverviewQuery,
+  useGetReportingTrendsQuery,
 } from "@/state/api";
-import type { ReportingOverview } from "@/state/api";
+import type { ReportingOverview, ReportingTrends } from "@/state/api";
 import {
   AlertTriangle,
   BedDouble,
@@ -21,11 +23,14 @@ import {
   BedStatusBar,
   BookingsBreakdown,
   Meter,
+  OccupancyLine,
   SectionCard,
   SimpleBars,
   StatTile,
+  TrendColumns,
 } from "@/components/reports/ReportParts";
 import {
+  CHART_COLORS,
   RANGE_PRESETS,
   formatDate,
   formatMoney,
@@ -35,16 +40,19 @@ import {
 } from "@/components/reports/reportHelpers";
 
 // ---------------------------------------------------------------------------
-// Step 19 - Executive Overview for managers.
-// All numbers come from ONE server call (GET /api/reports/overview); this page
-// only displays them. Beds and rooms are a live snapshot; money and bookings
-// follow the selected date range.
+// Step 19 - Executive Overview + Trends for managers.
+// All numbers come from the server (GET /api/reports/overview and /trends);
+// this page only displays them. Beds and rooms are a live snapshot; money and
+// bookings follow the selected date range.
 // ---------------------------------------------------------------------------
+
+type Granularity = "day" | "week" | "month";
 
 export default function ManagerReportsPage() {
   const { user } = useUser();
   const [preset, setPreset] = useState("30d");
   const [propertyId, setPropertyId] = useState<number | null>(null);
+  const [granularityChoice, setGranularityChoice] = useState<Granularity | null>(null);
 
   // Memoised so the date range does not change on every render (that would refetch forever).
   const range = useMemo(() => rangeForPreset(preset), [preset]);
@@ -68,6 +76,19 @@ export default function ManagerReportsPage() {
     skip: !user?.id,
   });
 
+  // Daily for short ranges, weekly for 90 days - unless the manager picks one.
+  const granularity: Granularity = granularityChoice ?? (preset === "90d" ? "week" : "day");
+
+  // Trends are requested only after the overview has arrived, so the first load
+  // never sends both heavy requests to the database at the same moment.
+  const trendArgs = useMemo(() => ({ ...args, granularity }), [args, granularity]);
+  const {
+    data: trends,
+    isFetching: trendsFetching,
+    isError: trendsError,
+    refetch: refetchTrends,
+  } = useGetReportingTrendsQuery(trendArgs, { skip: !user?.id || !data });
+
   const scopeLabel =
     propertyId === null
       ? "All your properties"
@@ -81,7 +102,10 @@ export default function ManagerReportsPage() {
           <p className="text-sm text-gray-500 mt-0.5">How your properties are performing</p>
         </div>
         <button
-          onClick={() => refetch()}
+          onClick={() => {
+            refetch();
+            if (data) refetchTrends();
+          }}
           disabled={isFetching || !user?.id}
           className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
         >
@@ -153,12 +177,134 @@ export default function ManagerReportsPage() {
         </div>
       ) : null}
 
-      {data ? <ReportBody data={data} isFetching={isFetching} /> : null}
+      {data ? (
+        <ReportBody
+          data={data}
+          isFetching={isFetching}
+          trendsSection={
+            <TrendsSection
+              trends={trends}
+              isFetching={trendsFetching}
+              isError={trendsError}
+              granularity={granularity}
+              onGranularityChange={setGranularityChoice}
+              onRetry={() => refetchTrends()}
+            />
+          }
+        />
+      ) : null}
     </div>
   );
 }
 
-function ReportBody({ data, isFetching }: { data: ReportingOverview; isFetching: boolean }) {
+const GRANULARITIES: { key: Granularity; label: string }[] = [
+  { key: "day", label: "Daily" },
+  { key: "week", label: "Weekly" },
+  { key: "month", label: "Monthly" },
+];
+
+function TrendsSection({
+  trends,
+  isFetching,
+  isError,
+  granularity,
+  onGranularityChange,
+  onRetry,
+}: {
+  trends: ReportingTrends | undefined;
+  isFetching: boolean;
+  isError: boolean;
+  granularity: Granularity;
+  onGranularityChange: (g: Granularity) => void;
+  onRetry: () => void;
+}) {
+  // One colour per product, the same in every chart: Hostel blue, Short stay orange, Rent / lease green.
+  const moneySeries = [
+    { key: "moneyHostel", label: "Hostel", color: CHART_COLORS.blue },
+    { key: "moneyRent", label: "Rent", color: CHART_COLORS.aqua },
+  ];
+  const bookingSeries = [
+    { key: "bookingsHostel", label: "Hostel", color: CHART_COLORS.blue },
+    { key: "bookingsShortStay", label: "Short stay", color: CHART_COLORS.orange },
+    { key: "bookingsLease", label: "Rental lease", color: CHART_COLORS.aqua },
+  ];
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Trends</h2>
+          <p className="text-sm text-gray-500">How things moved over the period you picked</p>
+        </div>
+        <div className="flex gap-2">
+          {GRANULARITIES.map((g) => (
+            <button
+              key={g.key}
+              onClick={() => onGranularityChange(g.key)}
+              aria-pressed={granularity === g.key}
+              className={
+                "h-9 px-3 rounded-full text-sm font-medium border " +
+                (granularity === g.key
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50")
+              }
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {isError && !trends ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-5 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-red-800">The trends could not be loaded</p>
+            <p className="text-sm text-red-700 mt-0.5">The rest of the report is fine. Try again in a moment.</p>
+            <button onClick={onRetry} className="mt-3 text-sm font-medium text-red-800 underline">
+              Try again
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {!trends && !isError ? <div className="animate-pulse bg-gray-200 rounded-2xl h-64" /> : null}
+
+      {trends ? (
+        <div className={"space-y-3 transition-opacity " + (isFetching ? "opacity-60" : "opacity-100")}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <SectionCard title="Money collected over time" subtitle="Received, by product">
+              <TrendColumns data={trends.buckets} series={moneySeries} granularity={trends.granularity} money />
+            </SectionCard>
+            <SectionCard title="New bookings over time" subtitle="Created in each period">
+              <TrendColumns data={trends.buckets} series={bookingSeries} granularity={trends.granularity} />
+            </SectionCard>
+            <div className="lg:col-span-2">
+              <SectionCard title="Occupancy over time" subtitle="Share of beds occupied, from the nightly bed snapshots">
+                <OccupancyLine points={trends.occupancy} />
+              </SectionCard>
+            </div>
+          </div>
+          {trends.granularity !== "day" ? (
+            <p className="text-xs text-gray-400">
+              The first and last bars can cover only part of a week or month.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ReportBody({
+  data,
+  isFetching,
+  trendsSection,
+}: {
+  data: ReportingOverview;
+  isFetching: boolean;
+  trendsSection: ReactNode;
+}) {
   const occ = data.occupancy;
   const rev = data.revenue;
   const appr = data.approval;
@@ -227,6 +373,8 @@ function ReportBody({ data, isFetching }: { data: ReportingOverview; isFetching:
           </dl>
         </SectionCard>
       </div>
+
+      {trendsSection}
 
       <SectionCard title="Approvals and cancellations" subtitle="Requests that were decided and bookings that fell through, in this period">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">

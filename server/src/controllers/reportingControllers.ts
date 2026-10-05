@@ -11,6 +11,8 @@ import {
   getApprovalRates,
   getRoomUtilization,
 } from "../lib/reportingService";
+import { getTrends, trendBucketKeys } from "../lib/reportingService";
+import type { TrendGranularity } from "../lib/reportingService";
 
 // -----------------------------------------------------------------------------
 //  reportingControllers.ts
@@ -160,3 +162,55 @@ async function runSequentially(tasks: any[]) {
   }
   return out;
 }
+
+// -- GET /api/reports/trends ----------------------------------------------
+// Same permission rules as /overview (resolveReportScope), plus:
+//   granularity = day | week | month   (default day)
+//   from / to                          (default: last 30 days)
+export const getReportingTrends = async (req: Request, res: Response): Promise<void> => {
+  const scopeResult = await resolveReportScope(req);
+  if (isScopeError(scopeResult)) {
+    res.status(scopeResult.status).json({ success: false, message: scopeResult.message });
+    return;
+  }
+
+  const range = resolveDateRange(req);
+  if (!range) {
+    res.status(400).json({ success: false, message: "Invalid date range" });
+    return;
+  }
+
+  const rawGranularity = String(req.query.granularity ?? "day");
+  if (rawGranularity !== "day" && rawGranularity !== "week" && rawGranularity !== "month") {
+    res.status(400).json({ success: false, message: "granularity must be day, week or month" });
+    return;
+  }
+  const granularity: TrendGranularity = rawGranularity;
+
+  if (trendBucketKeys(range, granularity).length > 400) {
+    res.status(400).json({
+      success: false,
+      message: "That range has too many data points for this view. Choose week or month, or a shorter range.",
+    });
+    return;
+  }
+
+  const { scope } = scopeResult;
+
+  try {
+    const data = await getTrends(scope, range, granularity);
+    res.status(200).json({
+      success: true,
+      message: "Reporting trends generated",
+      data: {
+        scope,
+        range: { from: range.from.toISOString(), to: range.to.toISOString() },
+        ...data,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    console.error("Reporting trends error:", error);
+    res.status(500).json({ success: false, message: "Error generating trends" });
+  }
+};
