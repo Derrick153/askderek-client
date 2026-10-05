@@ -4,6 +4,7 @@ import {
   getReportingOverview,
   getReportingTrends,
   getReportingHostel,
+  getReportingRecords,
 } from "../controllers/reportingControllers";
 
 const router = Router();
@@ -12,5 +13,6 @@ const router = Router();
 router.get("/overview", authMiddleware(["MANAGER", "ADMIN"]), getReportingOverview);
 router.get("/trends", authMiddleware(["MANAGER", "ADMIN"]), getReportingTrends);
 router.get("/hostel", authMiddleware(["MANAGER", "ADMIN"]), getReportingHostel);
+router.get("/records", authMiddleware(["MANAGER", "ADMIN"]), getReportingRecords);
 
 export default router;

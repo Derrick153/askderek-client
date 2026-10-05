@@ -878,3 +878,495 @@ export async function getHostelInsights(scope: ReportScope, range: DateRange) {
     maintenance,
   };
 }
+
+// =============================================================================
+//  DRILL-DOWN RECORDS  (Step 19, Phase 7)
+//
+//  "Click a number, see the records behind it." Each list below uses the SAME filters as
+//  the headline number it explains (getRevenueMetrics, getBookingMetrics, getApprovalRates,
+//  getCancellationRates, getOccupancyMetrics) and returns that headline's own figure as
+//  summary.value, so the two can be compared. test-records.ts checks they always agree.
+//  Rows come one page at a time (skip / take) - the whole table is never loaded.
+//
+//  metric                                     the list                                   summary.value
+//  received, received_hostel, received_rent   Paid + PartiallyPaid payments by           money received
+//                                             paymentDate in the range
+//  outstanding_ledger                         Pending / PartiallyPaid / Overdue          money still owed
+//                                             payments due on or before the range end
+//  outstanding_hostel                         hostel bookings AWAITING_PAYMENT           money awaiting
+//  bookings_hostel, bookings_short_stay,      bookings created in the range              number of bookings
+//  bookings_lease                             (optional status)
+//  approvals_*                                decided hostel bookings / lease            number of records
+//                                             applications created in the range
+//  beds (+ status)                            non-retired beds in that status now        number of beds
+//  hostel_semester (+ ay, semester)           every booking of one semester row          number of bookings
+//                                             (NOT limited by the date range)
+//
+//  Authorization is NOT handled here - the controller passes in a scope it has verified.
+// =============================================================================
+
+export const REPORT_RECORD_METRICS = [
+  "received",
+  "received_hostel",
+  "received_rent",
+  "outstanding_ledger",
+  "outstanding_hostel",
+  "bookings_hostel",
+  "bookings_short_stay",
+  "bookings_lease",
+  "approvals_hostel_approved",
+  "approvals_hostel_rejected",
+  "approvals_application_approved",
+  "approvals_application_denied",
+  "beds",
+  "hostel_semester",
+] as const;
+
+export type ReportRecordMetric = (typeof REPORT_RECORD_METRICS)[number];
+
+export interface ReportRecordsQuery {
+  metric: ReportRecordMetric;
+  status?: string;
+  ay?: number;
+  semester?: string;
+  page: number;
+  pageSize: number;
+}
+
+export interface ReportRecordRow {
+  id: number;
+  kind: "payment" | "hostel_booking" | "short_stay_booking" | "lease" | "application" | "bed";
+  title: string;
+  subtitle: string;
+  status: string;
+  amount: number | null;
+  date: string | null;
+  property: string;
+}
+
+export const MAX_RECORDS_PAGE_SIZE = 50;
+
+const RECORD_STATUSES: { [metric: string]: string[] } = {
+  bookings_hostel: ["ACTIVE", "EXPIRING", "COMPLETED", "EXTENDED", "EXPIRED", "PENDING_APPROVAL", "AWAITING_PAYMENT", "REJECTED", "CANCELLED"],
+  bookings_short_stay: ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT", "NO_SHOW", "CANCELLED"],
+  bookings_lease: ["ACTIVE", "EXPIRING_SOON", "EXPIRING_URGENT", "EXPIRED", "RENEWED", "FROZEN", "TERMINATED"],
+  beds: ["AVAILABLE", "RESERVED", "OCCUPIED", "MAINTENANCE"],
+};
+
+const RECORD_TITLES: { [metric: string]: string } = {
+  received: "Money received",
+  received_hostel: "Money received - hostel",
+  received_rent: "Money received - rent",
+  outstanding_ledger: "Ledger balances still owed",
+  outstanding_hostel: "Hostel bookings awaiting payment",
+  bookings_hostel: "Hostel bookings",
+  bookings_short_stay: "Short-stay bookings",
+  bookings_lease: "Rental leases",
+  approvals_hostel_approved: "Hostel bookings approved",
+  approvals_hostel_rejected: "Hostel bookings rejected",
+  approvals_application_approved: "Lease applications approved",
+  approvals_application_denied: "Lease applications denied",
+  beds: "Beds",
+  hostel_semester: "Hostel bookings in this semester",
+};
+
+// Returns a plain-words problem with the request, or null when it is fine.
+export function recordsQueryProblem(q: { metric: string; status?: string; ay?: number; semester?: string; page: number; pageSize: number }): string | null {
+  if (!(REPORT_RECORD_METRICS as readonly string[]).includes(q.metric)) return "Unknown metric";
+  if (!Number.isInteger(q.page) || q.page < 1 || q.page > 1000) return "page must be a whole number from 1 to 1000";
+  if (!Number.isInteger(q.pageSize) || q.pageSize < 1 || q.pageSize > MAX_RECORDS_PAGE_SIZE) {
+    return "pageSize must be a whole number from 1 to " + MAX_RECORDS_PAGE_SIZE;
+  }
+  const allowed: string[] | undefined = RECORD_STATUSES[q.metric];
+  if (q.metric === "beds" && !q.status) return "status is required for beds";
+  if (q.status !== undefined) {
+    if (!allowed) return "This metric does not take a status";
+    if (!allowed.includes(q.status)) return "Unknown status for this metric";
+  }
+  if (q.metric === "hostel_semester") {
+    if (q.ay === undefined || !Number.isInteger(q.ay) || q.ay < 2000 || q.ay > 2100) {
+      return "ay (the year the academic year starts) must be a year between 2000 and 2100";
+    }
+    if (!q.semester || q.semester.length > 200) return "semester is required (200 characters at most)";
+  }
+  return null;
+}
+
+function recStatusWord(s: string): string {
+  const w = s.toLowerCase().replace(/_/g, " ");
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+
+function recIso(d: Date | string | null | undefined): string | null {
+  return d ? new Date(d).toISOString() : null;
+}
+
+function recDay(d: Date | string): string {
+  return new Date(d).toISOString().slice(0, 10);
+}
+
+const REC_PAYMENT_SELECT = {
+  id: true,
+  amountDue: true,
+  amountPaid: true,
+  dueDate: true,
+  paymentDate: true,
+  paymentStatus: true,
+  leaseId: true,
+  paystackReference: true,
+  semesterPlan: { select: { reference: true, semesterName: true, property: { select: { name: true } } } },
+  lease: { select: { property: { select: { name: true } } } },
+};
+
+const REC_HOSTEL_SELECT = {
+  id: true,
+  semesterName: true,
+  reference: true,
+  roomNumber: true,
+  status: true,
+  amountPaid: true,
+  createdAt: true,
+  property: { select: { name: true } },
+};
+
+const REC_SHORT_SELECT = {
+  id: true,
+  reference: true,
+  status: true,
+  totalAmount: true,
+  checkIn: true,
+  checkOut: true,
+  createdAt: true,
+  property: { select: { name: true } },
+};
+
+const REC_LEASE_SELECT = {
+  id: true,
+  status: true,
+  rent: true,
+  startDate: true,
+  endDate: true,
+  createdAt: true,
+  property: { select: { name: true } },
+};
+
+const REC_APPLICATION_SELECT = {
+  id: true,
+  name: true,
+  status: true,
+  applicationDate: true,
+  property: { select: { name: true } },
+};
+
+const REC_BED_SELECT = {
+  id: true,
+  bedNumber: true,
+  status: true,
+  updatedAt: true,
+  room: { select: { roomNumber: true, block: true, floor: true, property: { select: { name: true } } } },
+};
+
+function recPaymentRow(p: any, mode: "received" | "owed"): ReportRecordRow {
+  const hostel = !!p.semesterPlan;
+  const rent = !hostel && !!p.leaseId;
+  return {
+    id: p.id,
+    kind: "payment",
+    title: hostel ? "Hostel payment" : rent ? "Rent payment" : "Payment",
+    subtitle: hostel
+      ? String(p.semesterPlan.semesterName) + " - " + String(p.semesterPlan.reference)
+      : p.paystackReference
+        ? String(p.paystackReference)
+        : "Payment " + p.id,
+    status: String(p.paymentStatus),
+    amount: mode === "received" ? p.amountPaid : round2(p.amountDue - p.amountPaid),
+    date: recIso(mode === "received" ? p.paymentDate : p.dueDate),
+    property: p.semesterPlan?.property?.name ?? p.lease?.property?.name ?? "",
+  };
+}
+
+function recHostelRow(s: any): ReportRecordRow {
+  return {
+    id: s.id,
+    kind: "hostel_booking",
+    title: String(s.semesterName),
+    subtitle: String(s.reference) + (s.roomNumber ? " - Room " + s.roomNumber : ""),
+    status: String(s.status),
+    amount: s.amountPaid,
+    date: recIso(s.createdAt),
+    property: s.property?.name ?? "",
+  };
+}
+
+function recShortRow(b: any): ReportRecordRow {
+  return {
+    id: b.id,
+    kind: "short_stay_booking",
+    title: "Short stay",
+    subtitle: String(b.reference) + " - " + recDay(b.checkIn) + " to " + recDay(b.checkOut),
+    status: String(b.status),
+    amount: b.totalAmount,
+    date: recIso(b.createdAt),
+    property: b.property?.name ?? "",
+  };
+}
+
+function recLeaseRow(l: any): ReportRecordRow {
+  return {
+    id: l.id,
+    kind: "lease",
+    title: "Lease " + l.id,
+    subtitle: recDay(l.startDate) + " to " + recDay(l.endDate),
+    status: String(l.status),
+    amount: l.rent,
+    date: recIso(l.createdAt),
+    property: l.property?.name ?? "",
+  };
+}
+
+function recApplicationRow(a: any): ReportRecordRow {
+  return {
+    id: a.id,
+    kind: "application",
+    title: String(a.name),
+    subtitle: "Application " + a.id,
+    status: String(a.status),
+    amount: null,
+    date: recIso(a.applicationDate),
+    property: a.property?.name ?? "",
+  };
+}
+
+function recBedRow(b: any): ReportRecordRow {
+  const where = [b.room?.block ? "Block " + b.room.block : "", b.room?.floor ? "Floor " + b.room.floor : ""].filter(Boolean).join(" - ");
+  return {
+    id: b.id,
+    kind: "bed",
+    title: "Room " + (b.room?.roomNumber ?? "?") + " - Bed " + b.bedNumber,
+    subtitle: where,
+    status: String(b.status),
+    amount: null,
+    date: recIso(b.updatedAt),
+    property: b.room?.property?.name ?? "",
+  };
+}
+
+export async function getReportRecords(scope: ReportScope, range: DateRange, q: ReportRecordsQuery) {
+  const skip = (q.page - 1) * q.pageSize;
+  const take = q.pageSize;
+  const payScope = paymentPropertyScope(scope);
+  const dateScope = directPropertyScope(scope);
+  const createdIn = { createdAt: { gte: range.from, lte: range.to } };
+
+  let total = 0;
+  let value = 0;
+  let valueLabel = "Records";
+  let money = false;
+  let rows: ReportRecordRow[] = [];
+
+  // Count, then sum, then one page - one after another, never together (free database).
+  switch (q.metric) {
+    case "received":
+    case "received_hostel":
+    case "received_rent": {
+      const where: any = {
+        paymentDate: { gte: range.from, lte: range.to },
+        paymentStatus: { in: ["Paid", "PartiallyPaid"] },
+        ...payScope,
+        ...(q.metric === "received_hostel" ? { semesterPlan: { isNot: null } } : {}),
+        ...(q.metric === "received_rent" ? { lease: { isNot: null } } : {}),
+      };
+      total = await prisma.payment.count({ where });
+      const agg = await prisma.payment.aggregate({ where, _sum: { amountPaid: true } });
+      value = agg._sum.amountPaid ?? 0;
+      money = true;
+      valueLabel = "Total received";
+      const list = await prisma.payment.findMany({
+        where,
+        select: REC_PAYMENT_SELECT,
+        orderBy: [{ paymentDate: "desc" }, { id: "desc" }],
+        skip,
+        take,
+      });
+      rows = list.map((p: any) => recPaymentRow(p, "received"));
+      break;
+    }
+
+    case "outstanding_ledger": {
+      const where: any = {
+        dueDate: { lte: range.to },
+        paymentStatus: { in: ["Pending", "PartiallyPaid", "Overdue"] },
+        ...payScope,
+      };
+      total = await prisma.payment.count({ where });
+      const agg = await prisma.payment.aggregate({ where, _sum: { amountDue: true, amountPaid: true } });
+      value = (agg._sum.amountDue ?? 0) - (agg._sum.amountPaid ?? 0);
+      money = true;
+      valueLabel = "Total still owed";
+      const list = await prisma.payment.findMany({
+        where,
+        select: REC_PAYMENT_SELECT,
+        orderBy: [{ dueDate: "asc" }, { id: "asc" }],
+        skip,
+        take,
+      });
+      rows = list.map((p: any) => recPaymentRow(p, "owed"));
+      break;
+    }
+
+    case "outstanding_hostel": {
+      const where: any = { status: "AWAITING_PAYMENT", createdAt: { lte: range.to }, ...dateScope };
+      total = await prisma.semesterPlan.count({ where });
+      const agg = await prisma.semesterPlan.aggregate({ where, _sum: { amountPaid: true } });
+      value = agg._sum.amountPaid ?? 0;
+      money = true;
+      valueLabel = "Total awaiting payment";
+      const list = await prisma.semesterPlan.findMany({
+        where,
+        select: REC_HOSTEL_SELECT,
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        skip,
+        take,
+      });
+      rows = list.map((s: any) => recHostelRow(s));
+      break;
+    }
+
+    case "bookings_hostel":
+    case "approvals_hostel_approved":
+    case "approvals_hostel_rejected": {
+      const where: any = { ...createdIn, ...dateScope };
+      if (q.metric === "approvals_hostel_approved") where.status = { notIn: ["PENDING_APPROVAL", "REJECTED"] };
+      else if (q.metric === "approvals_hostel_rejected") where.status = "REJECTED";
+      else if (q.status) where.status = q.status;
+      total = await prisma.semesterPlan.count({ where });
+      value = total;
+      const list = await prisma.semesterPlan.findMany({
+        where,
+        select: REC_HOSTEL_SELECT,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip,
+        take,
+      });
+      rows = list.map((s: any) => recHostelRow(s));
+      break;
+    }
+
+    case "bookings_short_stay": {
+      const where: any = { ...createdIn, ...dateScope };
+      if (q.status) where.status = q.status;
+      total = await prisma.booking.count({ where });
+      value = total;
+      const list = await prisma.booking.findMany({
+        where,
+        select: REC_SHORT_SELECT,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip,
+        take,
+      });
+      rows = list.map((b: any) => recShortRow(b));
+      break;
+    }
+
+    case "bookings_lease": {
+      const where: any = { ...createdIn, ...dateScope };
+      if (q.status) where.status = q.status;
+      total = await prisma.lease.count({ where });
+      value = total;
+      const list = await prisma.lease.findMany({
+        where,
+        select: REC_LEASE_SELECT,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip,
+        take,
+      });
+      rows = list.map((l: any) => recLeaseRow(l));
+      break;
+    }
+
+    case "approvals_application_approved":
+    case "approvals_application_denied": {
+      const where: any = {
+        applicationDate: { gte: range.from, lte: range.to },
+        ...dateScope,
+        status: q.metric === "approvals_application_approved" ? "Approved" : "Denied",
+      };
+      total = await prisma.application.count({ where });
+      value = total;
+      const list = await prisma.application.findMany({
+        where,
+        select: REC_APPLICATION_SELECT,
+        orderBy: [{ applicationDate: "desc" }, { id: "desc" }],
+        skip,
+        take,
+      });
+      rows = list.map((a: any) => recApplicationRow(a));
+      break;
+    }
+
+    case "beds": {
+      const where: any = { ...bedPropertyScope(scope), isRetired: false, status: q.status };
+      total = await prisma.bed.count({ where });
+      value = total;
+      valueLabel = "Beds";
+      const list = await prisma.bed.findMany({
+        where,
+        select: REC_BED_SELECT,
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        skip,
+        take,
+      });
+      rows = list.map((b: any) => recBedRow(b));
+      break;
+    }
+
+    case "hostel_semester": {
+      const ids = await resolvePropertyIds(scope);
+      const spScope = ids === null ? Prisma.sql`TRUE` : Prisma.sql`sp."propertyId" = ANY(${ids}::int[])`;
+      const ay = q.ay as number;
+      const semKey = q.semester as string;
+      const countRows = await prisma.$queryRaw<{ n: number }[]>(Prisma.sql`
+        SELECT COUNT(*)::int AS "n"
+        FROM "SemesterPlan" sp
+        WHERE ${spScope}
+          AND (${AY_START_SQL}) = ${ay}::int
+          AND (${SEM_KEY_SQL}) = ${semKey}
+      `);
+      total = countRows.length > 0 ? countRows[0].n : 0;
+      value = total;
+      valueLabel = "Bookings";
+      const idRows = await prisma.$queryRaw<{ id: number }[]>(Prisma.sql`
+        SELECT sp."id" AS "id"
+        FROM "SemesterPlan" sp
+        WHERE ${spScope}
+          AND (${AY_START_SQL}) = ${ay}::int
+          AND (${SEM_KEY_SQL}) = ${semKey}
+        ORDER BY sp."createdAt" DESC, sp."id" DESC
+        LIMIT ${take} OFFSET ${skip}
+      `);
+      const wanted = idRows.map((r) => r.id);
+      const list = wanted.length > 0
+        ? await prisma.semesterPlan.findMany({ where: { id: { in: wanted } }, select: REC_HOSTEL_SELECT })
+        : [];
+      const byId = new Map<number, any>(list.map((s: any) => [s.id, s]));
+      rows = wanted.filter((id) => byId.has(id)).map((id) => recHostelRow(byId.get(id)));
+      break;
+    }
+
+    default:
+      throw new Error("Unknown metric");
+  }
+
+  const baseTitle = RECORD_TITLES[q.metric];
+  return {
+    metric: q.metric,
+    title: q.status ? baseTitle + " (" + recStatusWord(q.status) + ")" : baseTitle,
+    status: q.status ?? null,
+    page: q.page,
+    pageSize: q.pageSize,
+    total,
+    pageCount: Math.max(1, Math.ceil(total / q.pageSize)),
+    summary: { label: valueLabel, value: money ? round2(value) : value, money },
+    rows,
+  };
+}

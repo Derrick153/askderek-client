@@ -14,6 +14,8 @@ import {
 import { getTrends, trendBucketKeys } from "../lib/reportingService";
 import type { TrendGranularity } from "../lib/reportingService";
 import { getHostelInsights } from "../lib/reportingService";
+import { getReportRecords, recordsQueryProblem } from "../lib/reportingService";
+import type { ReportRecordsQuery } from "../lib/reportingService";
 
 // -----------------------------------------------------------------------------
 //  reportingControllers.ts
@@ -249,5 +251,60 @@ export const getReportingHostel = async (req: Request, res: Response): Promise<v
   } catch (error: any) {
     console.error("Hostel insights error:", error);
     res.status(500).json({ success: false, message: "Error generating hostel insights" });
+  }
+};
+
+// -- GET /api/reports/records -----------------------------------------------
+// "Click a number, see the records behind it." Same permission rules and date range as
+// /overview. Query: metric (required), status, ay + semester (hostel_semester), page, pageSize.
+export const getReportingRecords = async (req: Request, res: Response): Promise<void> => {
+  const scopeResult = await resolveReportScope(req);
+  if (isScopeError(scopeResult)) {
+    res.status(scopeResult.status).json({ success: false, message: scopeResult.message });
+    return;
+  }
+
+  const range = resolveDateRange(req);
+  if (!range) {
+    res.status(400).json({ success: false, message: "Invalid date range" });
+    return;
+  }
+
+  const { scope } = scopeResult;
+
+  const pick = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v.trim() : undefined);
+  const ayRaw = pick(req.query.ay);
+  const pageRaw = pick(req.query.page);
+  const sizeRaw = pick(req.query.pageSize);
+  const query = {
+    metric: pick(req.query.metric) ?? "",
+    status: pick(req.query.status),
+    semester: pick(req.query.semester),
+    ay: ayRaw === undefined ? undefined : Number(ayRaw),
+    page: pageRaw === undefined ? 1 : Number(pageRaw),
+    pageSize: sizeRaw === undefined ? 10 : Number(sizeRaw),
+  };
+
+  const problem = recordsQueryProblem(query);
+  if (problem) {
+    res.status(400).json({ success: false, message: problem });
+    return;
+  }
+
+  try {
+    const data = await getReportRecords(scope, range, query as ReportRecordsQuery);
+    res.status(200).json({
+      success: true,
+      message: "Records generated",
+      data: {
+        scope,
+        range: { from: range.from.toISOString(), to: range.to.toISOString() },
+        ...data,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    console.error("Report records error:", error);
+    res.status(500).json({ success: false, message: "Error generating records" });
   }
 };
