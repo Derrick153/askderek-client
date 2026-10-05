@@ -671,3 +671,206 @@ export async function getTrends(scope: ReportScope, range: DateRange, g: TrendGr
 
   return { granularity: g, bucketCount: keys.length, buckets, occupancy };
 }
+
+// =============================================================================
+//  HOSTEL INSIGHTS  (Step 19, Phase 6b)
+//
+//  SEMESTER PERFORMANCE, grouped by ACADEMIC YEAR
+//    - There is no academic-year field, so it is derived from the check-in date:
+//      August to December -> that year / next year (Sep 2026 = 2026/2027);
+//      January to July    -> last year / this year (Feb 2027 = 2026/2027).
+//    - Semester names are free text typed at booking time, so names are merged only when
+//      they match after lower-casing and tidying spaces around "/". Different spellings
+//      stay separate rows. Every booking is counted, whatever its status.
+//    - Not limited by the report date range: it lists every booking in scope, newest year first.
+//    - received        = money collected on those bookings (Paid / PartiallyPaid payments)
+//      awaitingPayment = approved bookings still unpaid (status AWAITING_PAYMENT)
+//
+//  MAINTENANCE  (BedStatusHistory + current bed status)
+//    - Retiring a bed is logged as a move to MAINTENANCE too, so history rows whose action is
+//      HOSTEL_BED_RETIRED are NOT counted as maintenance.
+//    - entered   = beds that went into maintenance during the period
+//      fixed     = of those, came back into use (the next change was not a retirement)
+//      retired   = of those, were later retired instead of repaired
+//      stillOpen = of those, no later change yet
+//      avgDaysToFix = average days until back in use (null when none were fixed)
+//    - inMaintenanceNow / openBeds = beds in MAINTENANCE right now (a snapshot, not the period).
+// =============================================================================
+
+type StatusCounts = { [status: string]: number };
+
+interface SemesterRow {
+  key: string;
+  name: string;
+  total: number;
+  byStatus: StatusCounts;
+  received: number;
+  awaitingPayment: number;
+}
+
+const AY_START_SQL = Prisma.sql`CASE WHEN EXTRACT(MONTH FROM sp."checkIn") >= 8 THEN EXTRACT(YEAR FROM sp."checkIn")::int ELSE EXTRACT(YEAR FROM sp."checkIn")::int - 1 END`;
+const SEM_KEY_SQL = Prisma.sql`COALESCE(NULLIF(lower(btrim(regexp_replace(regexp_replace(sp."semesterName", '[[:space:]]+', ' ', 'g'), '[[:space:]]*/[[:space:]]*', '/', 'g'))), ''), '(no name)')`;
+
+const MAX_SEMESTERS_PER_YEAR = 10;
+
+export async function getHostelInsights(scope: ReportScope, range: DateRange) {
+  const ids = await resolvePropertyIds(scope);
+  const spScope = ids === null ? Prisma.sql`TRUE` : Prisma.sql`sp."propertyId" = ANY(${ids}::int[])`;
+  const roomScope = ids === null ? Prisma.sql`TRUE` : Prisma.sql`r."propertyId" = ANY(${ids}::int[])`;
+
+  // One query after another, never together: the free database allows only a few connections.
+  const bookingRows = await prisma.$queryRaw<{ ayStart: number; key: string; label: string; status: string; n: number; amount: number }[]>(Prisma.sql`
+    SELECT ${AY_START_SQL} AS "ayStart",
+           ${SEM_KEY_SQL} AS "key",
+           MIN(btrim(sp."semesterName")) AS "label",
+           sp."status"::text AS "status",
+           COUNT(*)::int AS "n",
+           COALESCE(SUM(sp."amountPaid"), 0)::float8 AS "amount"
+    FROM "SemesterPlan" sp
+    WHERE ${spScope}
+    GROUP BY 1, 2, 4
+  `);
+
+  const receivedRows = await prisma.$queryRaw<{ ayStart: number; key: string; received: number }[]>(Prisma.sql`
+    SELECT ${AY_START_SQL} AS "ayStart",
+           ${SEM_KEY_SQL} AS "key",
+           COALESCE(SUM(p."amountPaid"), 0)::float8 AS "received"
+    FROM "Payment" p
+    JOIN "SemesterPlan" sp ON sp."id" = p."semesterPlanId"
+    WHERE p."paymentStatus" IN ('Paid', 'PartiallyPaid')
+      AND ${spScope}
+    GROUP BY 1, 2
+  `);
+
+  const years = new Map<number, Map<string, SemesterRow>>();
+  const rowFor = (ay: number, key: string, label: string): SemesterRow => {
+    let sems = years.get(ay);
+    if (!sems) {
+      sems = new Map<string, SemesterRow>();
+      years.set(ay, sems);
+    }
+    let row = sems.get(key);
+    if (!row) {
+      row = { key, name: label || key, total: 0, byStatus: {}, received: 0, awaitingPayment: 0 };
+      sems.set(key, row);
+    }
+    return row;
+  };
+
+  for (const r of bookingRows) {
+    const row = rowFor(r.ayStart, r.key, r.label);
+    row.total += r.n;
+    row.byStatus[r.status] = (row.byStatus[r.status] || 0) + r.n;
+    if (r.status === "AWAITING_PAYMENT") row.awaitingPayment += r.amount;
+  }
+  for (const r of receivedRows) {
+    rowFor(r.ayStart, r.key, "").received += r.received;
+  }
+
+  const academicYears = Array.from(years.entries())
+    .sort((a, b) => b[0] - a[0])
+    .map(([ayStart, sems]) => {
+      const all = Array.from(sems.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+      const totals = all.reduce(
+        (t, s) => {
+          t.total += s.total;
+          t.received += s.received;
+          t.awaitingPayment += s.awaitingPayment;
+          Object.keys(s.byStatus).forEach((k) => {
+            t.byStatus[k] = (t.byStatus[k] || 0) + s.byStatus[k];
+          });
+          return t;
+        },
+        { total: 0, received: 0, awaitingPayment: 0, byStatus: {} as StatusCounts }
+      );
+      return {
+        label: ayStart + "/" + (ayStart + 1),
+        start: ayStart,
+        totals: { ...totals, received: round2(totals.received), awaitingPayment: round2(totals.awaitingPayment) },
+        semesters: all
+          .slice(0, MAX_SEMESTERS_PER_YEAR)
+          .map((s) => ({ ...s, received: round2(s.received), awaitingPayment: round2(s.awaitingPayment) })),
+        hiddenSemesters: Math.max(0, all.length - MAX_SEMESTERS_PER_YEAR),
+      };
+    });
+
+  const openRows = await prisma.$queryRaw<{ bedId: number; bedNumber: string; roomNumber: string; propertyId: number; propertyName: string; since: Date; total: number }[]>(Prisma.sql`
+    SELECT b."id" AS "bedId",
+           b."bedNumber" AS "bedNumber",
+           r."roomNumber" AS "roomNumber",
+           r."propertyId" AS "propertyId",
+           pr."name" AS "propertyName",
+           COALESCE(m."since", b."updatedAt") AS "since",
+           (COUNT(*) OVER ())::int AS "total"
+    FROM "Bed" b
+    JOIN "Room" r ON r."id" = b."roomId"
+    JOIN "Property" pr ON pr."id" = r."propertyId"
+    LEFT JOIN LATERAL (
+      SELECT MAX(h."createdAt") AS "since"
+      FROM "BedStatusHistory" h
+      WHERE h."bedId" = b."id"
+        AND h."newStatus" = 'MAINTENANCE'
+        AND h."action" <> 'HOSTEL_BED_RETIRED'
+    ) m ON TRUE
+    WHERE b."status" = 'MAINTENANCE'
+      AND b."isRetired" = false
+      AND ${roomScope}
+    ORDER BY COALESCE(m."since", b."updatedAt") ASC
+    LIMIT 20
+  `);
+
+  const periodRows = await prisma.$queryRaw<{ entered: number; fixed: number; retired: number; stillOpen: number; avgDaysToFix: number | null }[]>(Prisma.sql`
+    WITH ev AS (
+      SELECT h."bedId", h."newStatus", h."action", h."createdAt",
+             LEAD(h."createdAt") OVER w AS "nextAt",
+             LEAD(h."action") OVER w AS "nextAction"
+      FROM "BedStatusHistory" h
+      JOIN "Bed" b ON b."id" = h."bedId"
+      JOIN "Room" r ON r."id" = b."roomId"
+      WHERE ${roomScope}
+      WINDOW w AS (PARTITION BY h."bedId" ORDER BY h."createdAt", h."id")
+    )
+    SELECT COUNT(*)::int AS "entered",
+           COUNT(*) FILTER (WHERE "nextAt" IS NOT NULL AND "nextAction" IS DISTINCT FROM 'HOSTEL_BED_RETIRED')::int AS "fixed",
+           COUNT(*) FILTER (WHERE "nextAction" = 'HOSTEL_BED_RETIRED')::int AS "retired",
+           COUNT(*) FILTER (WHERE "nextAt" IS NULL)::int AS "stillOpen",
+           (AVG(EXTRACT(EPOCH FROM ("nextAt" - "createdAt")) / 86400.0)
+              FILTER (WHERE "nextAt" IS NOT NULL AND "nextAction" IS DISTINCT FROM 'HOSTEL_BED_RETIRED'))::float8 AS "avgDaysToFix"
+    FROM ev
+    WHERE "newStatus" = 'MAINTENANCE'
+      AND "action" <> 'HOSTEL_BED_RETIRED'
+      AND "createdAt" >= ${range.from}
+      AND "createdAt" <= ${range.to}
+  `);
+
+  const p = periodRows[0];
+  const now = Date.now();
+  const maintenance = {
+    inMaintenanceNow: openRows.length > 0 ? openRows[0].total : 0,
+    openBeds: openRows.map((r) => {
+      const since = new Date(r.since);
+      return {
+        bedId: r.bedId,
+        bedNumber: r.bedNumber,
+        roomNumber: r.roomNumber,
+        propertyId: r.propertyId,
+        propertyName: r.propertyName,
+        since: since.toISOString(),
+        days: Math.max(0, Math.floor((now - since.getTime()) / 86400000)),
+      };
+    }),
+    period: {
+      entered: p ? p.entered : 0,
+      fixed: p ? p.fixed : 0,
+      retired: p ? p.retired : 0,
+      stillOpen: p ? p.stillOpen : 0,
+      avgDaysToFix: p && p.avgDaysToFix !== null ? Math.round(p.avgDaysToFix * 10) / 10 : (null as MetricValue),
+    },
+  };
+
+  return {
+    academicYearRule: "Academic year runs August to July, counted from the check-in date.",
+    academicYears,
+    maintenance,
+  };
+}

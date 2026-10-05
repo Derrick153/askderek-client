@@ -13,6 +13,7 @@ import {
 } from "../lib/reportingService";
 import { getTrends, trendBucketKeys } from "../lib/reportingService";
 import type { TrendGranularity } from "../lib/reportingService";
+import { getHostelInsights } from "../lib/reportingService";
 
 // -----------------------------------------------------------------------------
 //  reportingControllers.ts
@@ -212,5 +213,41 @@ export const getReportingTrends = async (req: Request, res: Response): Promise<v
   } catch (error: any) {
     console.error("Reporting trends error:", error);
     res.status(500).json({ success: false, message: "Error generating trends" });
+  }
+};
+
+// -- GET /api/reports/hostel ----------------------------------------------
+// Semester performance by academic year + maintenance report. Same permission rules
+// as /overview; from / to (default last 30 days) only affect the maintenance period.
+export const getReportingHostel = async (req: Request, res: Response): Promise<void> => {
+  const scopeResult = await resolveReportScope(req);
+  if (isScopeError(scopeResult)) {
+    res.status(scopeResult.status).json({ success: false, message: scopeResult.message });
+    return;
+  }
+
+  const range = resolveDateRange(req);
+  if (!range) {
+    res.status(400).json({ success: false, message: "Invalid date range" });
+    return;
+  }
+
+  const { scope } = scopeResult;
+
+  try {
+    const data = await getHostelInsights(scope, range);
+    res.status(200).json({
+      success: true,
+      message: "Hostel insights generated",
+      data: {
+        scope,
+        range: { from: range.from.toISOString(), to: range.to.toISOString() },
+        ...data,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    console.error("Hostel insights error:", error);
+    res.status(500).json({ success: false, message: "Error generating hostel insights" });
   }
 };
