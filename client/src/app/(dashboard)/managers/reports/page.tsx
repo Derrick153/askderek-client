@@ -39,6 +39,8 @@ import {
   formatTime,
   rangeForPreset,
 } from "@/components/reports/reportHelpers";
+import RecordsPanel, { RecordsLink } from "@/components/reports/RecordsPanel";
+import type { RecordsRequest } from "@/components/reports/RecordsPanel";
 import { HostelInsights } from "@/components/reports/HostelInsights";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +57,7 @@ export default function ManagerReportsPage() {
   const [preset, setPreset] = useState("30d");
   const [propertyId, setPropertyId] = useState<number | null>(null);
   const [granularityChoice, setGranularityChoice] = useState<Granularity | null>(null);
+  const [records, setRecords] = useState<RecordsRequest | null>(null);
 
   // Memoised so the date range does not change on every render (that would refetch forever).
   const range = useMemo(() => rangeForPreset(preset), [preset]);
@@ -191,10 +194,9 @@ export default function ManagerReportsPage() {
       ) : null}
 
       {data ? (
-        <ReportBody
-          data={data}
+        <ReportBody onOpen={setRecords} data={data}
           isFetching={isFetching}
-          hostelSection={<HostelInsights hostel={hostel} isFetching={hostelFetching} isError={hostelError} onRetry={() => refetchHostel()} />}
+          hostelSection={<HostelInsights hostel={hostel} isFetching={hostelFetching} isError={hostelError} onRetry={() => refetchHostel()} onOpen={setRecords} />}
         trendsSection={
             <TrendsSection
               trends={trends}
@@ -205,6 +207,16 @@ export default function ManagerReportsPage() {
               onRetry={() => refetchTrends()}
             />
           }
+        />
+      ) : null}
+
+      {records ? (
+        <RecordsPanel
+          key={JSON.stringify(records)}
+          request={records}
+          scope={propertyId !== null ? { propertyId: propertyId } : { managerClerkId: user?.id }}
+          range={range}
+          onClose={() => setRecords(null)}
         />
       ) : null}
     </div>
@@ -315,11 +327,13 @@ function ReportBody({
   isFetching,
   trendsSection,
   hostelSection,
+  onOpen,
 }: {
   data: ReportingOverview;
   isFetching: boolean;
   trendsSection: ReactNode;
   hostelSection: ReactNode;
+  onOpen: (request: RecordsRequest) => void;
 }) {
   const occ = data.occupancy;
   const rev = data.revenue;
@@ -339,9 +353,9 @@ function ReportBody({
   ];
   const moneyRows = [
     { label: "Billed in this period", value: rev.bookingValue },
-    { label: "Received", value: rev.received },
-    { label: "Still owed (rent and fees)", value: rev.outstandingBreakdown.ledger },
-    { label: "Approved hostel bookings not yet paid", value: rev.outstandingBreakdown.hostelAwaitingPayment },
+    { label: "Received", value: rev.received, metric: "received" },
+    { label: "Still owed (rent and fees)", value: rev.outstandingBreakdown.ledger, metric: "outstanding_ledger" },
+    { label: "Approved hostel bookings not yet paid", value: rev.outstandingBreakdown.hostelAwaitingPayment, metric: "outstanding_hostel" },
     { label: "Failed payments", value: rev.failed },
     { label: "Refunded", value: rev.refunded },
   ];
@@ -354,8 +368,9 @@ function ReportBody({
           label="Occupancy"
           value={formatPercent(occ.occupancyRate)}
           hint={occ.totalBeds > 0 ? occ.occupied + " of " + occ.totalBeds + " beds occupied" : "No beds set up yet"}
+          onClick={occ.occupied > 0 ? () => onOpen({ metric: "beds", status: "OCCUPIED", title: "Occupied beds" }) : undefined}
         />
-        <StatTile icon={DollarSign} label="Money received" value={formatMoney(rev.received)} hint="Collected in this period" />
+        <StatTile icon={DollarSign} label="Money received" value={formatMoney(rev.received)} hint="Collected in this period" onClick={rev.received > 0 ? () => onOpen({ metric: "received", title: "Money received" }) : undefined} />
         <StatTile icon={Clock} label="Still owed" value={formatMoney(rev.outstanding)} hint="Unpaid right now" />
         <StatTile icon={CheckCircle2} label="Collection rate" value={formatPercent(data.collectionRate)} hint="Of the money that fell due" />
         <StatTile icon={CalendarCheck} label="New bookings" value={String(data.bookings.total)} hint="Hostel, short stay and lease" />
@@ -365,10 +380,20 @@ function ReportBody({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <SectionCard title="Beds right now" subtitle="A live snapshot, not changed by the date range">
           <BedStatusBar occupancy={occ} />
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+            {occ.occupied > 0 ? <RecordsLink onClick={() => onOpen({ metric: "beds", status: "OCCUPIED", title: "Occupied beds" })}>See occupied</RecordsLink> : null}
+            {occ.reserved > 0 ? <RecordsLink onClick={() => onOpen({ metric: "beds", status: "RESERVED", title: "Reserved beds" })}>See reserved</RecordsLink> : null}
+            {occ.available > 0 ? <RecordsLink onClick={() => onOpen({ metric: "beds", status: "AVAILABLE", title: "Available beds" })}>See available</RecordsLink> : null}
+            {occ.maintenance > 0 ? <RecordsLink onClick={() => onOpen({ metric: "beds", status: "MAINTENANCE", title: "Beds in maintenance" })}>See maintenance</RecordsLink> : null}
+          </div>
         </SectionCard>
 
         <SectionCard title="Money collected" subtitle="Received in this period, by product">
           <SimpleBars data={moneyChart} money />
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+            {rev.receivedByProduct.hostel > 0 ? <RecordsLink onClick={() => onOpen({ metric: "received_hostel", title: "Money received - hostel" })}>See hostel payments</RecordsLink> : null}
+            {rev.receivedByProduct.rent > 0 ? <RecordsLink onClick={() => onOpen({ metric: "received_rent", title: "Money received - rent" })}>See rent payments</RecordsLink> : null}
+          </div>
         </SectionCard>
 
         <SectionCard title="How full the rooms are" subtitle="A live snapshot of room use">
@@ -381,9 +406,25 @@ function ReportBody({
         <SectionCard title="Money details" subtitle="Billed, collected and still owed">
           <dl className="space-y-3">
             {moneyRows.map((row) => (
-              <div key={row.label} className="flex items-baseline justify-between gap-3 text-sm">
+              <div
+                key={row.label}
+                className={"flex items-baseline justify-between gap-3 text-sm" + (row.metric ? " cursor-pointer rounded-lg -mx-2 px-2 py-1.5 hover:bg-gray-50" : "")}
+                role={row.metric ? "button" : undefined}
+                tabIndex={row.metric ? 0 : undefined}
+                onClick={row.metric ? () => onOpen({ metric: row.metric as string, title: row.label }) : undefined}
+                onKeyDown={
+                  row.metric
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onOpen({ metric: row.metric as string, title: row.label });
+                        }
+                      }
+                    : undefined
+                }
+              >
                 <dt className="text-gray-600">{row.label}</dt>
-                <dd className="font-semibold text-gray-900 shrink-0">{formatMoney(row.value)}</dd>
+                <dd className="font-semibold text-gray-900 shrink-0">{formatMoney(row.value)}{row.metric ? <span className="ml-1 text-blue-600">{"\u203A"}</span> : null}</dd>
               </div>
             ))}
           </dl>
@@ -395,35 +436,57 @@ function ReportBody({
 
       <SectionCard title="Approvals and cancellations" subtitle="Requests that were decided and bookings that fell through, in this period">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          <Meter
-            label="Hostel approval rate"
-            rate={appr.hostel.rate}
-            detail={appr.hostel.decided === 0 ? "No decisions in this period" : appr.hostel.approved + " approved, " + appr.hostel.rejected + " rejected"}
-          />
-          <Meter
-            label="Lease application approval rate"
-            rate={appr.leaseApplication.rate}
-            detail={appr.leaseApplication.decided === 0 ? "No decisions in this period" : appr.leaseApplication.approved + " approved, " + appr.leaseApplication.denied + " denied"}
-          />
-          <Meter
-            label="Hostel cancellation rate"
-            rate={canc.hostel.rate}
-            detail={canc.hostel.total === 0 ? "No hostel bookings in this period" : canc.hostel.cancelled + " of " + canc.hostel.total + " cancelled"}
-          />
-          <Meter
-            label="Short-stay cancellation rate"
-            rate={canc.shortStay.rate}
-            detail={canc.shortStay.total === 0 ? "No short-stay bookings in this period" : canc.shortStay.cancelled + " of " + canc.shortStay.total + " cancelled"}
-          />
+          <div>
+            <Meter
+              label="Hostel approval rate"
+              rate={appr.hostel.rate}
+              detail={appr.hostel.decided === 0 ? "No decisions in this period" : appr.hostel.approved + " approved, " + appr.hostel.rejected + " rejected"}
+            />
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              {appr.hostel.approved > 0 ? <RecordsLink onClick={() => onOpen({ metric: "approvals_hostel_approved", title: "Hostel bookings approved" })}>See approved</RecordsLink> : null}
+              {appr.hostel.rejected > 0 ? <RecordsLink onClick={() => onOpen({ metric: "approvals_hostel_rejected", title: "Hostel bookings rejected" })}>See rejected</RecordsLink> : null}
+            </div>
+          </div>
+          <div>
+            <Meter
+              label="Lease application approval rate"
+              rate={appr.leaseApplication.rate}
+              detail={appr.leaseApplication.decided === 0 ? "No decisions in this period" : appr.leaseApplication.approved + " approved, " + appr.leaseApplication.denied + " denied"}
+            />
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              {appr.leaseApplication.approved > 0 ? <RecordsLink onClick={() => onOpen({ metric: "approvals_application_approved", title: "Lease applications approved" })}>See approved</RecordsLink> : null}
+              {appr.leaseApplication.denied > 0 ? <RecordsLink onClick={() => onOpen({ metric: "approvals_application_denied", title: "Lease applications denied" })}>See denied</RecordsLink> : null}
+            </div>
+          </div>
+          <div>
+            <Meter
+              label="Hostel cancellation rate"
+              rate={canc.hostel.rate}
+              detail={canc.hostel.total === 0 ? "No hostel bookings in this period" : canc.hostel.cancelled + " of " + canc.hostel.total + " cancelled"}
+            />
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              {canc.hostel.cancelled > 0 ? <RecordsLink onClick={() => onOpen({ metric: "bookings_hostel", status: "CANCELLED", title: "Hostel bookings cancelled" })}>See cancelled</RecordsLink> : null}
+            </div>
+          </div>
+          <div>
+            <Meter
+              label="Short-stay cancellation rate"
+              rate={canc.shortStay.rate}
+              detail={canc.shortStay.total === 0 ? "No short-stay bookings in this period" : canc.shortStay.cancelled + " of " + canc.shortStay.total + " cancelled"}
+            />
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              {canc.shortStay.cancelled > 0 ? <RecordsLink onClick={() => onOpen({ metric: "bookings_short_stay", status: "CANCELLED", title: "Short-stay bookings cancelled" })}>See cancelled</RecordsLink> : null}
+            </div>
+          </div>
         </div>
       </SectionCard>
 
       <SectionCard title="Bookings by status" subtitle="Created in this period">
-        <BookingsBreakdown bookings={data.bookings} />
+        <BookingsBreakdown bookings={data.bookings} onOpen={onOpen} />
       </SectionCard>
 
       <p className="text-xs text-gray-400">
-        Beds and rooms show the situation right now. Money and bookings follow the date range you picked.
+        Beds and rooms show the situation right now. Money and bookings follow the date range you picked. Tap a figure or a See link to open the records behind it.
       </p>
     </div>
   );

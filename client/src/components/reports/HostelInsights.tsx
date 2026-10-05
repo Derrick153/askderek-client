@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, CalendarCheck, CheckCircle2, Clock, DollarSign, Wrench } from "lucide-react";
 import type { ReportingHostel } from "@/state/api";
 import { SectionCard, StatTile } from "@/components/reports/ReportParts";
+import type { RecordsRequest } from "@/components/reports/RecordsPanel";
 import { CHART_COLORS, formatDate, formatMoney, prettyStatus } from "@/components/reports/reportHelpers";
 
 // ---------------------------------------------------------------------------
@@ -33,11 +34,13 @@ export function HostelInsights({
   isFetching,
   isError,
   onRetry,
+  onOpen,
 }: {
   hostel: ReportingHostel | undefined;
   isFetching: boolean;
   isError: boolean;
   onRetry: () => void;
+  onOpen?: (request: RecordsRequest) => void;
 }) {
   const [yearChoice, setYearChoice] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -143,6 +146,15 @@ export function HostelInsights({
                     {DOT}
                     Awaiting payment {formatMoney(s.awaitingPayment)}
                   </p>
+                  {onOpen ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpen({ metric: "hostel_semester", ay: selected.start, semester: s.key, title: selected.label + " \u00B7 " + s.name })}
+                      className="mt-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+                    >
+                      View these bookings
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -161,9 +173,6 @@ export function HostelInsights({
                 {selected.hiddenSemesters} more {selected.hiddenSemesters === 1 ? "semester" : "semesters"} with fewer bookings are not listed. The totals above include them.
               </p>
             ) : null}
-            <p className="text-xs text-gray-400">
-              {hostel.academicYearRule} Semester names are typed by students, so similar names can appear as separate rows.
-            </p>
           </div>
         )}
       </SectionCard>
@@ -174,7 +183,9 @@ export function HostelInsights({
       >
         <div className="space-y-5">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatTile icon={Wrench} label="In maintenance now" value={String(m.inMaintenanceNow)} hint="A live snapshot" />
+            <StatTile icon={Wrench} label="In maintenance now" value={String(m.inMaintenanceNow)} hint="A live snapshot"
+              onClick={onOpen && m.inMaintenanceNow > 0 ? () => onOpen({ metric: "beds", status: "MAINTENANCE", title: "Beds in maintenance" }) : undefined}
+            />
             <StatTile icon={AlertTriangle} label="Went into maintenance" value={String(m.period.entered)} hint="In this period" />
             <StatTile
               icon={CheckCircle2}

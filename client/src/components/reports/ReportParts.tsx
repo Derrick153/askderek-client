@@ -39,17 +39,31 @@ export function SectionCard({ title, subtitle, children }: { title: string; subt
   );
 }
 
-export function StatTile({ icon: Icon, label, value, hint }: { icon: any; label: string; value: string; hint?: string }) {
-  return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-5 min-w-0">
+export function StatTile({ icon: Icon, label, value, hint, onClick }: { icon: any; label: string; value: string; hint?: string; onClick?: () => void }) {
+  const inner = (
+    <>
       <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center mb-3">
         <Icon className="w-5 h-5 text-blue-600" />
       </div>
       <p className="text-xl sm:text-2xl font-bold text-gray-900 truncate" title={value}>{value}</p>
       <p className="text-sm text-gray-500 mt-0.5">{label}</p>
       {hint ? <p className="text-xs text-gray-400 mt-1">{hint}</p> : null}
-    </div>
+      {onClick ? <p className="text-xs font-medium text-blue-600 mt-2">View records</p> : null}
+    </>
   );
+  const box = "bg-white rounded-2xl border border-gray-200 p-5 min-w-0";
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={box + " block w-full text-left hover:border-blue-300 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition"}
+      >
+        {inner}
+      </button>
+    );
+  }
+  return <div className={box}>{inner}</div>;
 }
 
 // A percentage meter. rate === null means "no data", shown as an empty track.
@@ -156,11 +170,17 @@ export function SimpleBars({ data, money, unit }: { data: { name: string; value:
 }
 
 // Booking counts by status for each product (each keeps its own status names).
-export function BookingsBreakdown({ bookings }: { bookings: ReportingOverview["bookings"] }) {
+export function BookingsBreakdown({
+  bookings,
+  onOpen,
+}: {
+  bookings: ReportingOverview["bookings"];
+  onOpen?: (request: { metric: string; status?: string; title?: string }) => void;
+}) {
   const groups = [
-    { title: "Hostel", map: bookings.hostel },
-    { title: "Short stay", map: bookings.shortStay },
-    { title: "Rental leases", map: bookings.lease },
+    { title: "Hostel", metric: "bookings_hostel", map: bookings.hostel },
+    { title: "Short stay", metric: "bookings_short_stay", map: bookings.shortStay },
+    { title: "Rental leases", metric: "bookings_lease", map: bookings.lease },
   ];
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -178,9 +198,22 @@ export function BookingsBreakdown({ bookings }: { bookings: ReportingOverview["b
             ) : (
               <ul className="mt-2 space-y-1">
                 {rows.map(([status, count]) => (
-                  <li key={status} className="flex justify-between gap-2 text-sm">
-                    <span className="text-gray-600 truncate">{prettyStatus(status)}</span>
-                    <span className="font-medium text-gray-900">{count}</span>
+                  <li key={status}>
+                    {onOpen && count > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpen({ metric: g.metric, status: status, title: g.title + ": " + prettyStatus(status) })}
+                        className="w-full flex justify-between gap-2 text-sm text-left rounded-md px-1 -mx-1 py-0.5 hover:bg-white"
+                      >
+                        <span className="text-gray-600 truncate">{prettyStatus(status)}</span>
+                        <span className="font-medium text-blue-700">{count} {"\u203A"}</span>
+                      </button>
+                    ) : (
+                      <div className="flex justify-between gap-2 text-sm">
+                        <span className="text-gray-600 truncate">{prettyStatus(status)}</span>
+                        <span className="font-medium text-gray-900">{count}</span>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

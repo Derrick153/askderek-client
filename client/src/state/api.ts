@@ -566,6 +566,43 @@ export interface ReportingTrends {
   generatedAt: string;
 }
 
+// ---- Step 19 Phase 7: drill-down records (mirror getReportRecords in server/src/lib/reportingService.ts) ----
+export interface ReportingRecordsArgs {
+  metric: string;
+  propertyId?: number;
+  managerClerkId?: string;
+  from?: string;
+  to?: string;
+  status?: string;
+  ay?: number;
+  semester?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ReportingRecordRow {
+  id: number;
+  kind: "payment" | "hostel_booking" | "short_stay_booking" | "lease" | "application" | "bed";
+  title: string;
+  subtitle: string;
+  status: string;
+  amount: number | null;
+  date: string | null;
+  property: string;
+}
+
+export interface ReportingRecords {
+  metric: string;
+  title: string;
+  status?: string | null;
+  page: number;
+  pageSize: number;
+  total: number;
+  pageCount: number;
+  summary: { label: string; value: number; money: boolean };
+  rows: ReportingRecordRow[];
+}
+
 // ---- Step 19 Phase 6b: hostel insights types (mirror getHostelInsights in server/src/lib/reportingService.ts) ----
 export interface ReportingHostelArgs {
   propertyId?: number;
@@ -1980,6 +2017,27 @@ getBookingTimeline: build.query<{ booking: { id: number; reference: string; stat
         await withToast(queryFulfilled, { error: "Failed to load trends." });
       },
     }),
+    getReportingRecords: build.query({
+      query: (args: ReportingRecordsArgs) => {
+        const params = new URLSearchParams();
+        params.set("metric", args.metric);
+        if (args.propertyId !== undefined) params.set("propertyId", String(args.propertyId));
+        if (args.managerClerkId) params.set("managerClerkId", args.managerClerkId);
+        if (args.from) params.set("from", args.from);
+        if (args.to) params.set("to", args.to);
+        if (args.status) params.set("status", args.status);
+        if (args.ay !== undefined) params.set("ay", String(args.ay));
+        if (args.semester) params.set("semester", args.semester);
+        if (args.page !== undefined) params.set("page", String(args.page));
+        if (args.pageSize !== undefined) params.set("pageSize", String(args.pageSize));
+        return "reports/records?" + params.toString();
+      },
+      transformResponse: (response: any): ReportingRecords => response?.data ?? response,
+      providesTags: ["Reports"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { error: "Failed to load the records." });
+      },
+    }),
     getReportingHostel: build.query({
       query: (args: ReportingHostelArgs) => {
         const params = new URLSearchParams();
@@ -2545,6 +2603,7 @@ export const {
   useGetReportingOverviewQuery,
   useGetReportingTrendsQuery,
   useGetReportingHostelQuery,
+  useGetReportingRecordsQuery,
   useGetHostelOccupancyQuery,
   useGetHostelAttentionCenterQuery,
   useUpdateRoomMutation,
