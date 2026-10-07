@@ -9,6 +9,7 @@ import {
   useGetReportingTrendsQuery,
   useGetReportingHostelQuery,
   useGetReportingAttentionQuery,
+  useGetReportingAnomaliesQuery,
 } from "@/state/api";
 import type { ReportingOverview, ReportingTrends } from "@/state/api";
 import {
@@ -44,6 +45,7 @@ import RecordsPanel, { RecordsLink } from "@/components/reports/RecordsPanel";
 import type { RecordsRequest } from "@/components/reports/RecordsPanel";
 import { HostelInsights } from "@/components/reports/HostelInsights";
 import AttentionCenter from "@/components/reports/AttentionCenter";
+import UnusualChanges from "@/components/reports/UnusualChanges";
 
 // ---------------------------------------------------------------------------
 // Step 19 - Executive Overview + Trends for managers.
@@ -120,6 +122,17 @@ export default function ManagerReportsPage() {
     skip: !user?.id || !data || (!trends && !trendsError),
   });
 
+  // Unusual changes are requested last: they add the most database work, so they wait until the
+  // overview, attention list, trends and hostel insights are all in (or have failed).
+  const {
+    data: anomalies,
+    isFetching: anomaliesFetching,
+    isError: anomaliesError,
+    refetch: refetchAnomalies,
+  } = useGetReportingAnomaliesQuery(attentionArgs, {
+    skip: !user?.id || !data || (!hostel && !hostelError),
+  });
+
   const scopeLabel =
     propertyId === null
       ? "All your properties"
@@ -138,6 +151,7 @@ export default function ManagerReportsPage() {
             if (data) refetchTrends();
             if (data) refetchHostel();
             if (data) refetchAttention();
+            if (data) refetchAnomalies();
           }}
           disabled={isFetching || !user?.id}
           className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
@@ -193,6 +207,16 @@ export default function ManagerReportsPage() {
           isError={attentionError}
           waiting={!data}
           onRetry={() => refetchAttention()}
+        />
+      ) : null}
+
+      {!(isError && !data) ? (
+        <UnusualChanges
+          anomalies={anomalies}
+          isFetching={anomaliesFetching}
+          isError={anomaliesError}
+          waiting={!data || (!hostel && !hostelError)}
+          onRetry={() => refetchAnomalies()}
         />
       ) : null}
 

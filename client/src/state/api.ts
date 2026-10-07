@@ -641,6 +641,38 @@ export interface ReportingAttentionArgs {
   managerClerkId?: string;
 }
 
+// ---- Step 19 Phase 9: unusual changes types
+export interface ReportingAnomalyExample {
+  id: string;
+  label: string;
+  detail: string;
+  property: string;
+  amount: number | null;
+}
+
+export interface ReportingAnomalyRule {
+  key: "occupancy_drop" | "payment_failures" | "rooms_under_used";
+  title: string;
+  rule: string;
+  status: "flagged" | "clear" | "not_enough_data" | "failed";
+  severity: "large" | "notable" | null;
+  headline: string;
+  count: number;
+  amount: number | null;
+  examples: ReportingAnomalyExample[];
+}
+
+export interface ReportingAnomalies {
+  asOf: string;
+  summary: { flagged: number; clear: number; notEnoughData: number; failed: number };
+  rules: ReportingAnomalyRule[];
+}
+
+export interface ReportingAnomaliesArgs {
+  propertyId?: number;
+  managerClerkId?: string;
+}
+
 // ---- Step 19 Phase 6b: hostel insights types (mirror getHostelInsights in server/src/lib/reportingService.ts) ----
 export interface ReportingHostelArgs {
   propertyId?: number;
@@ -2090,6 +2122,20 @@ getBookingTimeline: build.query<{ booking: { id: number; reference: string; stat
       },
     }),
 
+    getReportingAnomalies: build.query({
+      query: (args: ReportingAnomaliesArgs) => {
+        const params = new URLSearchParams();
+        if (args.propertyId !== undefined) params.set("propertyId", String(args.propertyId));
+        if (args.managerClerkId) params.set("managerClerkId", args.managerClerkId);
+        return "reports/anomalies?" + params.toString();
+      },
+      transformResponse: (response: any): ReportingAnomalies => response?.data ?? response,
+      providesTags: ["Reports"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { error: "Failed to load unusual changes." });
+      },
+    }),
+
     getReportingHostel: build.query({
       query: (args: ReportingHostelArgs) => {
         const params = new URLSearchParams();
@@ -2657,6 +2703,7 @@ export const {
   useGetReportingHostelQuery,
   useGetReportingRecordsQuery,
   useGetReportingAttentionQuery,
+  useGetReportingAnomaliesQuery,
   useGetHostelOccupancyQuery,
   useGetHostelAttentionCenterQuery,
   useUpdateRoomMutation,
