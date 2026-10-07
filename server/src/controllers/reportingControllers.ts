@@ -17,6 +17,7 @@ import { getHostelInsights } from "../lib/reportingService";
 import { getReportRecords, recordsQueryProblem } from "../lib/reportingService";
 import type { ReportRecordsQuery } from "../lib/reportingService";
 import { getAttentionItems } from "../lib/reportingService";
+import { getAnomalies } from "../lib/reportingService";
 
 // -----------------------------------------------------------------------------
 //  reportingControllers.ts
@@ -337,3 +338,33 @@ export const getReportingAttention = async (req: Request, res: Response): Promis
     res.status(500).json({ success: false, message: "Error generating attention items" });
   }
 };
+
+// -- GET /api/reports/anomalies ---------------------------------------------
+// "Has anything changed unusually?" Three written rules: occupancy dropped, payment failures
+// are high, rooms standing empty. Same permission rules as /overview (managers see their own
+// properties; admins see platform-wide, or one manager / one property). It is as-of-now, so
+// it ignores any date range.
+export const getReportingAnomalies = async (req: Request, res: Response): Promise<void> => {
+  const scopeResult = await resolveReportScope(req);
+  if (isScopeError(scopeResult)) {
+    res.status(scopeResult.status).json({ success: false, message: scopeResult.message });
+    return;
+  }
+
+  try {
+    const data = await getAnomalies(scopeResult.scope);
+    res.status(200).json({
+      success: true,
+      message: "Unusual changes generated",
+      data: {
+        scope: scopeResult.scope,
+        ...data,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    console.error("Report anomalies error:", error);
+    res.status(500).json({ success: false, message: "Error generating unusual changes" });
+  }
+};
+

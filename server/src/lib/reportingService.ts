@@ -2106,3 +2106,787 @@ export async function getAttentionItems(scope: ReportScope, now: Date = new Date
     rulesChecked: rules.length,
   };
 }
+
+// =============================================================================
+//  UNUSUAL CHANGES  (Step 19, Phase 9)
+//
+//  Three written rules that notice a CHANGE (not a task - that is the Attention Center):
+//    occupancy_drop     a hostel's occupancy fell compared with the week before
+//    payment_failures   a high share of customer payments failed in the last two weeks
+//    rooms_under_used   a room stayed (almost) unused for weeks while its hostel was busy
+//
+//  Every rule has written thresholds (ANOMALY_LIMITS) and a written minimum of data. When
+//  there is not enough data to judge, the rule says so ("not_enough_data") - it never shows
+//  0% or "all clear". A rule that could not run (database hiccup) says so too ("failed").
+//  Numbers are compared as whole tenths / per-mille so what is shown on screen is exactly
+//  what was compared against the threshold. Everything is scoped inside the query, and the
+//  time is "now" (the call time), not the page's date range.
+//
+//  Occupancy means the same as everywhere else: occupied beds / all non-retired beds
+//  (the daily OccupancySnapshot rows store exactly those counts).
+//
+//  Authorization is NOT handled here - the controller passes in a scope it has verified.
+// =============================================================================
+
+export const ANOMALY_LIMITS = {
+  // occupancy_drop
+  occupancyWindowDays: 7,
+  occupancyMinDays: 5,
+  occupancyDropPoints: 10,
+  occupancyDropBeds: 3,
+  occupancyLargePoints: 20,
+  // payment_failures
+  paymentWindowDays: 14,
+  paymentMinAttempts: 10,
+  paymentMinFailures: 3,
+  paymentHighPercent: 20,
+  paymentRiseFloorPercent: 10,
+  paymentRisePoints: 10,
+  paymentLargePercent: 40,
+  // rooms_under_used
+  roomWeeks: 4,
+  roomLowUsePercent: 25,
+  roomBusyPercent: 60,
+  roomMinBeds: 6,
+  // all rules
+  examplesPerRule: 5,
+};
+
+export type AnomalyKey = "occupancy_drop" | "payment_failures" | "rooms_under_used";
+export type AnomalyStatus = "flagged" | "clear" | "not_enough_data" | "failed";
+export type AnomalySeverity = "large" | "notable";
+
+export interface AnomalyExample {
+  id: string;
+  label: string;
+  detail: string;
+  property: string;
+  amount: number | null;
+}
+
+export interface AnomalyRuleResult {
+  key: AnomalyKey;
+  title: string;
+  rule: string;
+  status: AnomalyStatus;
+  severity: AnomalySeverity | null;
+  headline: string;
+  count: number;
+  amount: number | null;
+  examples: AnomalyExample[];
+}
+
+export interface AnomalyResult {
+  asOf: string;
+  summary: { flagged: number; clear: number; notEnoughData: number; failed: number };
+  rules: AnomalyRuleResult[];
+}
+
+interface AnoOut {
+  status: AnomalyStatus;
+  severity: AnomalySeverity | null;
+  headline: string;
+  count: number;
+  amount: number | null;
+  examples: AnomalyExample[];
+}
+
+const anoDb: any = prisma;
+const ANO_DAY = 24 * 60 * 60 * 1000;
+const ANO_WEEK = 7 * ANO_DAY;
+const ANO_CEDI = "GH" + String.fromCharCode(0x20b5);
+const ANO_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const ANO_PAYMENT_TYPES = ["RentPayment", "SecurityDeposit", "ApplicationFee", "HostelPayment"];
+const ANO_TYPE_WORD: { [type: string]: string } = {
+  RentPayment: "Rent payment",
+  SecurityDeposit: "Security deposit",
+  ApplicationFee: "Application fee",
+  HostelPayment: "Hostel payment",
+};
+// A bed is "in use" while a paid stay covers it. EXPIRED is only counted when the student
+// really had the bed (checked in, or paid something) - a payment window that ran out is not a stay.
+const ANO_HELD_STATUSES = ["ACTIVE", "EXPIRING", "EXTENDED", "COMPLETED", "EXPIRED"];
+
+function anoMidnight(d: Date): number {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+function anoDayLabel(ms: number): string {
+  const d = new Date(ms);
+  return d.getUTCDate() + " " + ANO_MONTHS[d.getUTCMonth()] + " " + d.getUTCFullYear();
+}
+
+// per-mille (0..1000) -> "82.3%" / "82%"
+function anoPct(permille: number): string {
+  return String(Math.round(permille) / 10) + "%";
+}
+
+function anoMoney(n: number): string {
+  const r = Math.round(n * 100) / 100;
+  const parts = String(r).split(".");
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return ANO_CEDI + parts.join(".");
+}
+
+function anoPlural(n: number, word: string): string {
+  return n + " " + word + (n === 1 ? "" : "s");
+}
+
+// ---------------------------------------------------------------------------
+//  Rule 1 - occupancy_drop
+// ---------------------------------------------------------------------------
+async function anoOccupancy(scope: ReportScope, now: Date): Promise<AnoOut> {
+  const L = ANOMALY_LIMITS;
+  const d0 = anoMidnight(now);
+  const curStart = d0 - (L.occupancyWindowDays - 1) * ANO_DAY;
+  const prevStart = curStart - L.occupancyWindowDays * ANO_DAY;
+
+  const [rows, first] = await Promise.all([
+    anoDb.occupancySnapshot.findMany({
+      where: { property: attProperty(scope), snapshotDate: { gte: new Date(prevStart), lte: new Date(d0) } },
+      select: {
+        propertyId: true,
+        snapshotDate: true,
+        totalBeds: true,
+        occupied: true,
+        property: { select: { name: true } },
+      },
+    }),
+    anoDb.occupancySnapshot.aggregate({
+      where: { property: attProperty(scope) },
+      _min: { snapshotDate: true },
+    }),
+  ]);
+
+  interface Side {
+    n: number;
+    rate: number;
+    occ: number;
+  }
+  interface Prop {
+    id: number;
+    name: string;
+    cur: Side;
+    prev: Side;
+  }
+  const props: { [id: string]: Prop } = {};
+  const order: string[] = [];
+  for (const r of rows as any[]) {
+    if (!(r.totalBeds > 0)) continue;
+    const key = String(r.propertyId);
+    if (!props[key]) {
+      props[key] = {
+        id: r.propertyId,
+        name: (r.property && r.property.name) || "",
+        cur: { n: 0, rate: 0, occ: 0 },
+        prev: { n: 0, rate: 0, occ: 0 },
+      };
+      order.push(key);
+    }
+    const side = new Date(r.snapshotDate).getTime() >= curStart ? props[key].cur : props[key].prev;
+    side.n += 1;
+    side.rate += r.occupied / r.totalBeds;
+    side.occ += r.occupied;
+  }
+
+  const hits: { id: number; name: string; prevM: number; curM: number; dropM: number; fewerT: number }[] = [];
+  let compared = 0;
+  let skipped = 0;
+  for (const key of order) {
+    const p = props[key];
+    if (p.cur.n < L.occupancyMinDays || p.prev.n < L.occupancyMinDays) {
+      skipped += 1;
+      continue;
+    }
+    compared += 1;
+    const prevM = Math.round((p.prev.rate / p.prev.n) * 1000);
+    const curM = Math.round((p.cur.rate / p.cur.n) * 1000);
+    const dropM = prevM - curM;
+    const fewerT = Math.round((p.prev.occ / p.prev.n) * 10) - Math.round((p.cur.occ / p.cur.n) * 10);
+    if (dropM >= L.occupancyDropPoints * 10 && fewerT >= L.occupancyDropBeds * 10) {
+      hits.push({ id: p.id, name: p.name, prevM, curM, dropM, fewerT });
+    }
+  }
+
+  const skippedNote =
+    skipped > 0 ? " " + anoPlural(skipped, "hostel") + " skipped: not enough daily records yet." : "";
+
+  if (compared === 0) {
+    const earliest = first && first._min && first._min.snapshotDate ? new Date(first._min.snapshotDate).getTime() : null;
+    let why: string;
+    if (earliest === null) {
+      why = "No daily occupancy records exist yet for these hostels.";
+    } else {
+      const possibleFrom = anoMidnight(new Date(earliest)) + (L.occupancyWindowDays + L.occupancyMinDays - 1) * ANO_DAY;
+      why =
+        "Daily records began on " +
+        anoDayLabel(earliest) +
+        ". A comparison needs " +
+        L.occupancyMinDays +
+        " daily records in each of the last two weeks" +
+        (possibleFrom > d0 ? ", so the first one is possible from about " + anoDayLabel(possibleFrom) + "." : " (some days are missing).");
+    }
+    return { status: "not_enough_data", severity: null, headline: why, count: 0, amount: null, examples: [] };
+  }
+
+  if (hits.length === 0) {
+    return {
+      status: "clear",
+      severity: null,
+      headline:
+        "Compared " +
+        anoPlural(compared, "hostel") +
+        ": none dropped by " +
+        L.occupancyDropPoints +
+        " points or more (and " +
+        L.occupancyDropBeds +
+        "+ beds)." +
+        skippedNote,
+      count: 0,
+      amount: null,
+      examples: [],
+    };
+  }
+
+  hits.sort((a, b) => b.dropM - a.dropM || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const large = hits.some((h) => h.dropM >= L.occupancyLargePoints * 10);
+  return {
+    status: "flagged",
+    severity: large ? "large" : "notable",
+    headline:
+      anoPlural(hits.length, "hostel") +
+      (hits.length === 1 ? " has" : " have") +
+      " lower occupancy than the week before." +
+      skippedNote,
+    count: hits.length,
+    amount: null,
+    examples: hits.slice(0, L.examplesPerRule).map((h) => ({
+      id: String(h.id),
+      label: h.name || "Hostel " + h.id,
+      detail:
+        "Occupancy fell from " +
+        anoPct(h.prevM) +
+        " to " +
+        anoPct(h.curM) +
+        " (" +
+        String(h.dropM / 10) +
+        " points), about " +
+        String(h.fewerT / 10) +
+        " fewer beds in use on average.",
+      property: h.name,
+      amount: null,
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+//  Rule 2 - payment_failures
+// ---------------------------------------------------------------------------
+async function anoPayments(scope: ReportScope, now: Date): Promise<AnoOut> {
+  const L = ANOMALY_LIMITS;
+  const t = now.getTime();
+  const curFrom = new Date(t - L.paymentWindowDays * ANO_DAY);
+  const prevFrom = new Date(t - 2 * L.paymentWindowDays * ANO_DAY);
+  const base: any = paymentPropertyScope(scope);
+  const typeFilter = { in: ANO_PAYMENT_TYPES };
+  const countOf = (status: string, from: Date, to: Date) =>
+    anoDb.transaction.count({ where: { ...base, type: typeFilter, status, createdAt: { gte: from, lt: to } } });
+
+  const [curOk, curBad, prevOk, prevBad, badSum] = await Promise.all([
+    countOf("Success", curFrom, now),
+    countOf("Failed", curFrom, now),
+    countOf("Success", prevFrom, curFrom),
+    countOf("Failed", prevFrom, curFrom),
+    anoDb.transaction.aggregate({
+      where: { ...base, type: typeFilter, status: "Failed", createdAt: { gte: curFrom, lt: now } },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  const curAttempts: number = curOk + curBad;
+  const prevAttempts: number = prevOk + prevBad;
+  const days = L.paymentWindowDays;
+
+  if (curAttempts < L.paymentMinAttempts) {
+    return {
+      status: "not_enough_data",
+      severity: null,
+      headline:
+        "Only " +
+        anoPlural(curAttempts, "payment attempt") +
+        " finished in the last " +
+        days +
+        " days (" +
+        curBad +
+        " failed). At least " +
+        L.paymentMinAttempts +
+        " are needed to judge a failure rate.",
+      count: 0,
+      amount: null,
+      examples: [],
+    };
+  }
+
+  const rateM = Math.floor((curBad * 1000) / curAttempts);
+  const prevRateM = prevAttempts >= L.paymentMinAttempts ? Math.floor((prevBad * 1000) / prevAttempts) : null;
+  const enoughFailures = curBad >= L.paymentMinFailures;
+  const high = enoughFailures && rateM >= L.paymentHighPercent * 10;
+  const rising =
+    enoughFailures &&
+    rateM >= L.paymentRiseFloorPercent * 10 &&
+    prevRateM !== null &&
+    rateM - prevRateM >= L.paymentRisePoints * 10;
+
+  const prevNote =
+    prevRateM === null
+      ? " The " + days + " days before had too few payments to compare."
+      : " The " + days + " days before: " + anoPct(prevRateM) + ".";
+
+  if (!high && !rising) {
+    return {
+      status: "clear",
+      severity: null,
+      headline:
+        curBad +
+        " of " +
+        curAttempts +
+        " payment attempts failed (" +
+        anoPct(rateM) +
+        ") in the last " +
+        days +
+        " days - not unusual." +
+        prevNote,
+      count: 0,
+      amount: null,
+      examples: [],
+    };
+  }
+
+  const rows: any[] = await anoDb.transaction.findMany({
+    where: { ...base, type: typeFilter, status: "Failed", createdAt: { gte: curFrom, lt: now } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: L.examplesPerRule,
+    select: {
+      id: true,
+      amount: true,
+      type: true,
+      channel: true,
+      createdAt: true,
+      paystackReference: true,
+      lease: { select: { property: { select: { name: true } } } },
+      semesterPlan: { select: { property: { select: { name: true } } } },
+    },
+  });
+
+  const sum = badSum && badSum._sum && badSum._sum.amount ? badSum._sum.amount : 0;
+  return {
+    status: "flagged",
+    severity: rateM >= L.paymentLargePercent * 10 ? "large" : "notable",
+    headline:
+      anoPct(rateM) +
+      " of payment attempts failed in the last " +
+      days +
+      " days (" +
+      curBad +
+      " of " +
+      curAttempts +
+      ", " +
+      anoMoney(sum) +
+      ")." +
+      prevNote,
+    count: curBad,
+    amount: Math.round(sum * 100) / 100,
+    examples: rows.map((r) => {
+      const prop =
+        (r.lease && r.lease.property && r.lease.property.name) ||
+        (r.semesterPlan && r.semesterPlan.property && r.semesterPlan.property.name) ||
+        "";
+      const bits: string[] = [attWhen(r.createdAt, now)];
+      if (r.channel) bits.push(String(r.channel));
+      if (r.paystackReference) bits.push("ref " + r.paystackReference);
+      return {
+        id: String(r.id),
+        label: (ANO_TYPE_WORD[r.type] || "Payment") + " failed",
+        detail: bits.join(" - "),
+        property: prop,
+        amount: typeof r.amount === "number" ? r.amount : null,
+      };
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+//  Rule 3 - rooms_under_used
+// ---------------------------------------------------------------------------
+async function anoRooms(scope: ReportScope, now: Date): Promise<AnoOut> {
+  const L = ANOMALY_LIMITS;
+  const t = now.getTime();
+  const winStart = new Date(t - L.roomWeeks * ANO_WEEK);
+
+  const [beds, stays] = await Promise.all([
+    anoDb.bed.findMany({
+      where: {
+        isRetired: false,
+        status: { not: "MAINTENANCE" },
+        createdAt: { lte: winStart },
+        room: { isActive: true, createdAt: { lte: winStart }, property: attProperty(scope) },
+      },
+      select: {
+        id: true,
+        roomId: true,
+        room: {
+          select: { roomNumber: true, block: true, propertyId: true, property: { select: { name: true } } },
+        },
+      },
+    }),
+    anoDb.semesterPlan.findMany({
+      where: {
+        bedId: { not: null },
+        status: { in: ANO_HELD_STATUSES },
+        checkIn: { lt: now },
+        property: attProperty(scope),
+        OR: [
+          { actualEndDate: { gte: winStart } },
+          { actualEndDate: null, fixedEndDate: { gte: winStart } },
+          { actualEndDate: null, fixedEndDate: null },
+        ],
+      },
+      select: {
+        bedId: true,
+        status: true,
+        amountPaid: true,
+        checkIn: true,
+        checkedInAt: true,
+        actualEndDate: true,
+        fixedEndDate: true,
+      },
+    }),
+  ]);
+
+  interface BedInfo {
+    roomId: number;
+    spans: [number, number][];
+  }
+  interface RoomInfo {
+    id: number;
+    propertyId: number;
+    name: string;
+    number: string;
+    block: string | null;
+    beds: number;
+    covered: number[];
+  }
+  interface PropInfo {
+    id: number;
+    name: string;
+    beds: number;
+    covered: number[];
+    rooms: string[];
+  }
+  const zeros = (): number[] => {
+    const a: number[] = [];
+    for (let w = 0; w < L.roomWeeks; w++) a.push(0);
+    return a;
+  };
+
+  const bedInfo: { [id: string]: BedInfo } = {};
+  const rooms: { [id: string]: RoomInfo } = {};
+  const props: { [id: string]: PropInfo } = {};
+  const propOrder: string[] = [];
+  for (const b of beds as any[]) {
+    const rk = String(b.roomId);
+    const pk = String(b.room.propertyId);
+    bedInfo[String(b.id)] = { roomId: b.roomId, spans: [] };
+    if (!props[pk]) {
+      props[pk] = { id: b.room.propertyId, name: (b.room.property && b.room.property.name) || "", beds: 0, covered: zeros(), rooms: [] };
+      propOrder.push(pk);
+    }
+    if (!rooms[rk]) {
+      rooms[rk] = {
+        id: b.roomId,
+        propertyId: b.room.propertyId,
+        name: (b.room.property && b.room.property.name) || "",
+        number: b.room.roomNumber,
+        block: b.room.block || null,
+        beds: 0,
+        covered: zeros(),
+      };
+      props[pk].rooms.push(rk);
+    }
+    rooms[rk].beds += 1;
+    props[pk].beds += 1;
+  }
+
+  for (const s of stays as any[]) {
+    const info = bedInfo[String(s.bedId)];
+    if (!info) continue;
+    if (s.status === "EXPIRED" && !(s.checkedInAt || s.amountPaid > 0)) continue;
+    const checkIn = new Date(s.checkIn).getTime();
+    const started = s.checkedInAt ? Math.min(checkIn, new Date(s.checkedInAt).getTime()) : checkIn;
+    const endRaw = s.actualEndDate || s.fixedEndDate;
+    let ended = endRaw ? new Date(endRaw).getTime() : t;
+    if (ended > t) ended = t;
+    if (ended > started) info.spans.push([started, ended]);
+  }
+
+  // Per bed: merge overlapping stays, then count the milliseconds covered in each of the weeks.
+  for (const bk of Object.keys(bedInfo)) {
+    const info = bedInfo[bk];
+    if (info.spans.length === 0) continue;
+    info.spans.sort((a, b) => a[0] - b[0]);
+    const merged: [number, number][] = [];
+    for (const sp of info.spans) {
+      const last = merged.length ? merged[merged.length - 1] : null;
+      if (last && sp[0] <= last[1]) {
+        if (sp[1] > last[1]) last[1] = sp[1];
+      } else {
+        merged.push([sp[0], sp[1]]);
+      }
+    }
+    const room = rooms[String(info.roomId)];
+    const prop = props[String(room.propertyId)];
+    for (let w = 0; w < L.roomWeeks; w++) {
+      const wEnd = t - w * ANO_WEEK;
+      const wStart = wEnd - ANO_WEEK;
+      let cov = 0;
+      for (const m of merged) {
+        const lo = m[0] > wStart ? m[0] : wStart;
+        const hi = m[1] < wEnd ? m[1] : wEnd;
+        if (hi > lo) cov += hi - lo;
+      }
+      room.covered[w] += cov;
+      prop.covered[w] += cov;
+    }
+  }
+
+  const hits: { room: RoomInfo; avgM: number; propAvgM: number }[] = [];
+  let hostels = 0;
+  let busyHostels = 0;
+  let roomsChecked = 0;
+  for (const pk of propOrder) {
+    const p = props[pk];
+    if (p.beds < L.roomMinBeds) continue;
+    hostels += 1;
+    const propM = p.covered.map((c) => Math.floor((c * 1000) / (p.beds * ANO_WEEK)));
+    if (!propM.every((m) => m >= L.roomBusyPercent * 10)) continue;
+    busyHostels += 1;
+    const propAvgM = Math.round(propM.reduce((a, b) => a + b, 0) / propM.length);
+    for (const rk of p.rooms) {
+      const r = rooms[rk];
+      roomsChecked += 1;
+      const roomM = r.covered.map((c) => Math.floor((c * 1000) / (r.beds * ANO_WEEK)));
+      if (roomM.every((m) => m < L.roomLowUsePercent * 10)) {
+        hits.push({ room: r, avgM: Math.round(roomM.reduce((a, b) => a + b, 0) / roomM.length), propAvgM });
+      }
+    }
+  }
+
+  if (hostels === 0) {
+    return {
+      status: "not_enough_data",
+      severity: null,
+      headline:
+        "No hostel has " +
+        L.roomMinBeds +
+        " or more beds that have been in place for " +
+        L.roomWeeks +
+        " weeks yet, so there is nothing to compare.",
+      count: 0,
+      amount: null,
+      examples: [],
+    };
+  }
+
+  if (hits.length === 0) {
+    return {
+      status: "clear",
+      severity: null,
+      headline:
+        busyHostels === 0
+          ? "No hostel was at least " +
+            L.roomBusyPercent +
+            "% in use in all " +
+            L.roomWeeks +
+            " weeks, so no room was compared."
+          : "Checked " +
+            anoPlural(roomsChecked, "room") +
+            " in " +
+            anoPlural(busyHostels, "busy hostel") +
+            ": none stayed under " +
+            L.roomLowUsePercent +
+            "% in use for " +
+            L.roomWeeks +
+            " weeks.",
+      count: 0,
+      amount: null,
+      examples: [],
+    };
+  }
+
+  hits.sort(
+    (a, b) =>
+      a.avgM - b.avgM ||
+      (a.room.name < b.room.name ? -1 : a.room.name > b.room.name ? 1 : 0) ||
+      (a.room.number < b.room.number ? -1 : a.room.number > b.room.number ? 1 : 0)
+  );
+  return {
+    status: "flagged",
+    severity: "notable",
+    headline:
+      anoPlural(hits.length, "room") +
+      " stayed under " +
+      L.roomLowUsePercent +
+      "% in use for " +
+      L.roomWeeks +
+      " weeks while the hostel was busy.",
+    count: hits.length,
+    amount: null,
+    examples: hits.slice(0, L.examplesPerRule).map((h) => ({
+      id: String(h.room.id),
+      label: "Room " + h.room.number + (h.room.block ? " (Block " + h.room.block + ")" : ""),
+      detail:
+        "In use about " +
+        Math.round(h.avgM / 10) +
+        "% of the time over the last " +
+        L.roomWeeks +
+        " weeks; the hostel overall about " +
+        Math.round(h.propAvgM / 10) +
+        "%.",
+      property: h.room.name,
+      amount: null,
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+//  The rules in plain words, and the runner
+// ---------------------------------------------------------------------------
+interface AnoRule {
+  key: AnomalyKey;
+  title: string;
+  rule: string;
+  run: () => Promise<AnoOut>;
+}
+
+function anoRules(scope: ReportScope, now: Date): AnoRule[] {
+  const L = ANOMALY_LIMITS;
+  return [
+    {
+      key: "occupancy_drop",
+      title: "Occupancy dropped",
+      rule:
+        "Compares each hostel's average occupancy (occupied beds out of all beds that are not retired - the same figure as the rest of the Reports page) over the last " +
+        L.occupancyWindowDays +
+        " days with the " +
+        L.occupancyWindowDays +
+        " days before. Flagged when it fell by " +
+        L.occupancyDropPoints +
+        " points or more and by at least " +
+        L.occupancyDropBeds +
+        " beds on average; " +
+        L.occupancyLargePoints +
+        " points or more is marked large. It needs " +
+        L.occupancyMinDays +
+        " daily records in each of the two weeks, so a hostel without enough history is skipped, not shown as zero. A drop when a semester ends is normal - this only tells you it happened.",
+      run: () => anoOccupancy(scope, now),
+    },
+    {
+      key: "payment_failures",
+      title: "Payment failures are high",
+      rule:
+        "Looks at customer payments (rent, deposits, application fees, hostel payments) that finished in the last " +
+        L.paymentWindowDays +
+        " days; payments still pending are not counted. Flagged when " +
+        L.paymentHighPercent +
+        "% or more failed, or when " +
+        L.paymentRiseFloorPercent +
+        "% or more failed and that is " +
+        L.paymentRisePoints +
+        " points higher than the " +
+        L.paymentWindowDays +
+        " days before; " +
+        L.paymentLargePercent +
+        "% or more is marked large. It needs " +
+        L.paymentMinAttempts +
+        " finished payments and " +
+        L.paymentMinFailures +
+        " failures in the window (so one bad payment cannot trigger it), and " +
+        L.paymentMinAttempts +
+        " finished payments in the earlier window to make the comparison.",
+      run: () => anoPayments(scope, now),
+    },
+    {
+      key: "rooms_under_used",
+      title: "Rooms standing empty",
+      rule:
+        "Looks at each hostel room over the last " +
+        L.roomWeeks +
+        " weeks, week by week. A bed counts as in use on the days a paid stay covers it (active, extended, expiring, completed, or expired after it was paid for or checked in). Flagged when a room was in use less than " +
+        L.roomLowUsePercent +
+        "% of the time in every one of the weeks while its hostel as a whole was at least " +
+        L.roomBusyPercent +
+        "% in use in every one of those weeks - so holidays, when every room is empty, do not trigger it. Only beds and rooms in place for " +
+        L.roomWeeks +
+        "+ weeks are checked, hostels need " +
+        L.roomMinBeds +
+        "+ such beds, and beds in maintenance or retired are left out. This is a history-based figure, separate from the live occupancy numbers.",
+      run: () => anoRooms(scope, now),
+    },
+  ];
+}
+
+// The written rules, without running any of them (used by tests and documentation).
+export function getAnomalyRuleCatalog() {
+  return anoRules({}, new Date()).map((r) => ({ key: r.key, title: r.title, rule: r.rule }));
+}
+
+export async function getAnomalies(scope: ReportScope, now: Date = new Date()): Promise<AnomalyResult> {
+  const rules = anoRules(scope, now);
+  const results: AnomalyRuleResult[] = [];
+
+  // One rule at a time, retried once - kind to the free database.
+  for (let i = 0; i < rules.length; i++) {
+    const r = rules[i];
+    let out: AnoOut | null = null;
+    for (let attempt = 1; attempt <= 2 && !out; attempt++) {
+      try {
+        out = await r.run();
+      } catch (error: any) {
+        if (attempt === 2) console.error("Anomaly rule failed:", r.key, error?.message ?? error);
+        else await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    }
+    if (!out) {
+      out = {
+        status: "failed",
+        severity: null,
+        headline: "This check could not run just now. That is not the same as nothing unusual.",
+        count: 0,
+        amount: null,
+        examples: [],
+      };
+    }
+    results.push({
+      key: r.key,
+      title: r.title,
+      rule: r.rule,
+      status: out.status,
+      severity: out.severity,
+      headline: out.headline,
+      count: out.count,
+      amount: out.amount,
+      examples: out.examples,
+    });
+  }
+
+  const summary = { flagged: 0, clear: 0, notEnoughData: 0, failed: 0 };
+  for (const r of results) {
+    if (r.status === "flagged") summary.flagged += 1;
+    else if (r.status === "clear") summary.clear += 1;
+    else if (r.status === "not_enough_data") summary.notEnoughData += 1;
+    else summary.failed += 1;
+  }
+
+  return { asOf: now.toISOString(), summary, rules: results };
+}
+
