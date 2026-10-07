@@ -18,6 +18,17 @@ import { getReportRecords, recordsQueryProblem } from "../lib/reportingService";
 import type { ReportRecordsQuery } from "../lib/reportingService";
 import { getAttentionItems } from "../lib/reportingService";
 import { getAnomalies } from "../lib/reportingService";
+import {
+  buildSummaryDocument,
+  buildTrendsDocument,
+  buildRecordsDocument,
+  renderExport,
+  exportFileName,
+  describeRange,
+  EXPORT_CONTENT_TYPES,
+  EXPORT_MAX_ROWS,
+} from "../lib/reportExport";
+import type { ExportDocument, ExportFormat } from "../lib/reportExport";
 
 // -----------------------------------------------------------------------------
 //  reportingControllers.ts
@@ -368,3 +379,155 @@ export const getReportingAnomalies = async (req: Request, res: Response): Promis
   }
 };
 
+// -- GET /api/reports/export ------------------------------------------------
+// Downloads a report as a file (Step 19, Phase 11). Same permission rules and date range as
+// /overview: resolveReportScope runs FIRST, before any data is read.
+// Query:
+//   report = summary | trends | records
+//   format = csv | xlsx | pdf            (pdf is for the summary only)
+//   trends : granularity = day | week | month
+//   records: metric (required), status, ay + semester    (same rules as /records)
+// Every number comes from the same service functions as the Reports page, so a file can never
+// disagree with the screen. Layout and file writing live in lib/reportExport.ts.
+export const exportReport = async (req: Request, res: Response): Promise<void> => {
+  // If the database drops the connection while permission is being checked, answer with a clean
+  // 500 instead of leaving an unhandled error (nothing has been read or sent at this point).
+  const scopeResult = await resolveReportScope(req).catch((error: unknown) => {
+    console.error("Report export error (permission check):", error);
+    return null;
+  });
+  if (scopeResult === null) {
+    res.status(500).json({ success: false, message: "Error generating the file" });
+    return;
+  }
+  if (isScopeError(scopeResult)) {
+    res.status(scopeResult.status).json({ success: false, message: scopeResult.message });
+    return;
+  }
+
+  const range = resolveDateRange(req);
+  if (!range) {
+    res.status(400).json({ success: false, message: "Invalid date range" });
+    return;
+  }
+
+  const pick = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v.trim() : undefined);
+  const report = pick(req.query.report) ?? "";
+  const format = pick(req.query.format) ?? "";
+
+  if (report !== "summary" && report !== "trends" && report !== "records") {
+    res.status(400).json({ success: false, message: "report must be summary, trends or records" });
+    return;
+  }
+  if (format !== "csv" && format !== "xlsx" && format !== "pdf") {
+    res.status(400).json({ success: false, message: "format must be csv, xlsx or pdf" });
+    return;
+  }
+  if (format === "pdf" && report !== "summary") {
+    res.status(400).json({ success: false, message: "PDF is available for the summary report only. Choose Excel or CSV." });
+    return;
+  }
+  const fileFormat: ExportFormat = format;
+
+  let granularity: TrendGranularity = "day";
+  if (report === "trends") {
+    const rawGranularity = pick(req.query.granularity) ?? "day";
+    if (rawGranularity !== "day" && rawGranularity !== "week" && rawGranularity !== "month") {
+      res.status(400).json({ success: false, message: "granularity must be day, week or month" });
+      return;
+    }
+    granularity = rawGranularity;
+    if (trendBucketKeys(range, granularity).length > 400) {
+      res.status(400).json({
+        success: false,
+        message: "That range has too many data points for this view. Choose week or month, or a shorter range.",
+      });
+      return;
+    }
+  }
+
+  let recordsQuery: any = null;
+  if (report === "records") {
+    const ayRaw = pick(req.query.ay);
+    recordsQuery = {
+      metric: pick(req.query.metric) ?? "",
+      status: pick(req.query.status),
+      semester: pick(req.query.semester),
+      ay: ayRaw === undefined ? undefined : Number(ayRaw),
+    };
+    // The page-size limit is for pages on screen. A file reads up to EXPORT_MAX_ROWS records in one
+    // go, so every other rule is checked as for a normal first page.
+    const problem = recordsQueryProblem({ ...recordsQuery, page: 1, pageSize: 50 });
+    if (problem) {
+      res.status(400).json({ success: false, message: problem });
+      return;
+    }
+  }
+
+  const { scope } = scopeResult;
+
+  try {
+    const generatedAt = new Date().toISOString();
+
+    let scopeLabel = "All properties (platform-wide)";
+    if (scope.propertyId !== undefined && scope.propertyId !== null) {
+      const property = await prisma.property.findUnique({ where: { id: scope.propertyId }, select: { name: true } });
+      scopeLabel = "Property: " + (property?.name ?? "#" + scope.propertyId);
+    } else if (scope.managerClerkId) {
+      scopeLabel = "All your properties";
+    }
+    const meta = { scopeLabel, rangeLabel: describeRange(range), generatedAt };
+
+    let doc: ExportDocument;
+    let nameExtra: string | undefined;
+
+    if (report === "summary") {
+      const [occupancy, revenue, collectionRate, bookings, cancellation, approval, roomUtilization] =
+        await runSequentially([
+          () => getOccupancyMetrics(scope),
+          () => getRevenueMetrics(scope, range),
+          () => getCollectionRate(scope, range),
+          () => getBookingMetrics(scope, range),
+          () => getCancellationRates(scope, range),
+          () => getApprovalRates(scope, range),
+          () => getRoomUtilization(scope),
+        ]);
+      doc = buildSummaryDocument(
+        { occupancy, revenue, collectionRate, bookings, cancellation, approval, roomUtilization },
+        meta
+      );
+    } else if (report === "trends") {
+      const data = await getTrends(scope, range, granularity);
+      doc = buildTrendsDocument({ granularity, buckets: data.buckets, occupancy: data.occupancy }, meta);
+      nameExtra = granularity;
+    } else {
+      const data = await getReportRecords(scope, range, {
+        ...recordsQuery,
+        page: 1,
+        pageSize: EXPORT_MAX_ROWS,
+      } as ReportRecordsQuery);
+      doc = buildRecordsDocument(
+        { metric: data.metric, title: data.title, total: data.total, summary: data.summary, rows: data.rows },
+        meta
+      );
+      nameExtra = data.metric + (recordsQuery.status ? "-" + recordsQuery.status : "");
+    }
+
+    const file = await renderExport(doc, fileFormat);
+    const fileName = exportFileName(report, fileFormat, range, nameExtra);
+
+    // Phase 13 (audit trail): record REPORT_EXPORTED here - who, which report, format, scope, range.
+    // Phase 14 (security): a rate limit for this route is added in reportingRoutes.ts.
+
+    res.setHeader("Content-Type", EXPORT_CONTENT_TYPES[fileFormat]);
+    res.setHeader("Content-Disposition", 'attachment; filename="' + fileName + '"');
+    res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
+    res.setHeader("Content-Length", String(file.length));
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.status(200).end(file);
+  } catch (error: any) {
+    console.error("Report export error:", error);
+    res.status(500).json({ success: false, message: "Error generating the file" });
+  }
+};

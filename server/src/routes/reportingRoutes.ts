@@ -7,6 +7,7 @@ import {
   getReportingRecords,
   getReportingAttention,
   getReportingAnomalies,
+  exportReport,
 } from "../controllers/reportingControllers";
 
 const router = Router();
@@ -18,5 +19,6 @@ router.get("/hostel", authMiddleware(["MANAGER", "ADMIN"]), getReportingHostel);
 router.get("/records", authMiddleware(["MANAGER", "ADMIN"]), getReportingRecords);
 router.get("/attention", authMiddleware(["MANAGER", "ADMIN"]), getReportingAttention);
 router.get("/anomalies", authMiddleware(["MANAGER", "ADMIN"]), getReportingAnomalies);
+router.get("/export", authMiddleware(["MANAGER", "ADMIN"]), exportReport);
 
 export default router;
