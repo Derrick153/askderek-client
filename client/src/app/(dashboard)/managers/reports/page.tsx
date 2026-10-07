@@ -8,6 +8,7 @@ import {
   useGetReportingOverviewQuery,
   useGetReportingTrendsQuery,
   useGetReportingHostelQuery,
+  useGetReportingAttentionQuery,
 } from "@/state/api";
 import type { ReportingOverview, ReportingTrends } from "@/state/api";
 import {
@@ -42,6 +43,7 @@ import {
 import RecordsPanel, { RecordsLink } from "@/components/reports/RecordsPanel";
 import type { RecordsRequest } from "@/components/reports/RecordsPanel";
 import { HostelInsights } from "@/components/reports/HostelInsights";
+import AttentionCenter from "@/components/reports/AttentionCenter";
 
 // ---------------------------------------------------------------------------
 // Step 19 - Executive Overview + Trends for managers.
@@ -81,6 +83,20 @@ export default function ManagerReportsPage() {
     skip: !user?.id,
   });
 
+  // What needs attention is requested right after the overview (before trends and hostel insights):
+  // it is the part a manager acts on, and it still never hits the free database at the same moment
+  // as the other heavy requests.
+  const attentionArgs = useMemo(
+    () => (propertyId !== null ? { propertyId: propertyId } : { managerClerkId: user?.id }),
+    [propertyId, user?.id]
+  );
+  const {
+    data: attention,
+    isFetching: attentionFetching,
+    isError: attentionError,
+    refetch: refetchAttention,
+  } = useGetReportingAttentionQuery(attentionArgs, { skip: !user?.id || !data });
+
   // Daily for short ranges, weekly for 90 days - unless the manager picks one.
   const granularity: Granularity = granularityChoice ?? (preset === "90d" ? "week" : "day");
 
@@ -92,7 +108,7 @@ export default function ManagerReportsPage() {
     isFetching: trendsFetching,
     isError: trendsError,
     refetch: refetchTrends,
-  } = useGetReportingTrendsQuery(trendArgs, { skip: !user?.id || !data });
+  } = useGetReportingTrendsQuery(trendArgs, { skip: !user?.id || !data || (!attention && !attentionError) });
 
   // Hostel insights are requested last (after the overview and trends), so the free database is never asked for all three at once.
   const {
@@ -121,6 +137,7 @@ export default function ManagerReportsPage() {
             refetch();
             if (data) refetchTrends();
             if (data) refetchHostel();
+            if (data) refetchAttention();
           }}
           disabled={isFetching || !user?.id}
           className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
@@ -167,6 +184,16 @@ export default function ManagerReportsPage() {
           {scopeLabel} | {formatDate(data.range.from)} to {formatDate(data.range.to)} | updated{" "}
           {formatTime(data.generatedAt)}
         </p>
+      ) : null}
+
+      {!(isError && !data) ? (
+        <AttentionCenter
+          attention={attention}
+          isFetching={attentionFetching}
+          isError={attentionError}
+          waiting={!data}
+          onRetry={() => refetchAttention()}
+        />
       ) : null}
 
       {isError && !data ? (

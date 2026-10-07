@@ -603,6 +603,44 @@ export interface ReportingRecords {
   rows: ReportingRecordRow[];
 }
 
+// ---- Step 19 Phase 8: attention center types
+export interface ReportingAttentionExample {
+  id: number;
+  label: string;
+  detail: string;
+  date: string | null;
+  amount: number | null;
+  property: string;
+}
+
+export interface ReportingAttentionItem {
+  key: string;
+  area: "hostel" | "rent" | "short_stay" | "enquiries";
+  severity: "urgent" | "soon" | "info";
+  title: string;
+  rule: string;
+  count: number;
+  amount: number | null;
+  page: "applications" | "hostel" | "hostel_occupancy" | "payments" | "bookings" | "enquiries" | null;
+  examples: ReportingAttentionExample[];
+}
+
+export interface ReportingAttention {
+  scope: { propertyId?: number; managerClerkId?: string };
+  asOf: string;
+  generatedAt: string;
+  summary: { urgent: number; soon: number; info: number; items: number; records: number };
+  items: ReportingAttentionItem[];
+  clear: { key: string; area: string; title: string; rule: string }[];
+  failed: { key: string; area: string; title: string }[];
+  rulesChecked: number;
+}
+
+export interface ReportingAttentionArgs {
+  propertyId?: number;
+  managerClerkId?: string;
+}
+
 // ---- Step 19 Phase 6b: hostel insights types (mirror getHostelInsights in server/src/lib/reportingService.ts) ----
 export interface ReportingHostelArgs {
   propertyId?: number;
@@ -2038,6 +2076,20 @@ getBookingTimeline: build.query<{ booking: { id: number; reference: string; stat
         await withToast(queryFulfilled, { error: "Failed to load the records." });
       },
     }),
+    getReportingAttention: build.query({
+      query: (args: ReportingAttentionArgs) => {
+        const params = new URLSearchParams();
+        if (args.propertyId !== undefined) params.set("propertyId", String(args.propertyId));
+        if (args.managerClerkId) params.set("managerClerkId", args.managerClerkId);
+        return "reports/attention?" + params.toString();
+      },
+      transformResponse: (response: any): ReportingAttention => response?.data ?? response,
+      providesTags: ["Reports"],
+      async onQueryStarted(_, { queryFulfilled }) {
+        await withToast(queryFulfilled, { error: "Failed to load what needs your attention." });
+      },
+    }),
+
     getReportingHostel: build.query({
       query: (args: ReportingHostelArgs) => {
         const params = new URLSearchParams();
@@ -2604,6 +2656,7 @@ export const {
   useGetReportingTrendsQuery,
   useGetReportingHostelQuery,
   useGetReportingRecordsQuery,
+  useGetReportingAttentionQuery,
   useGetHostelOccupancyQuery,
   useGetHostelAttentionCenterQuery,
   useUpdateRoomMutation,
