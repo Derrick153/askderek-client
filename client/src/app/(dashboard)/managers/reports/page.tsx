@@ -45,6 +45,7 @@ import type { RecordsRequest } from "@/components/reports/RecordsPanel";
 import { HostelInsights } from "@/components/reports/HostelInsights";
 import AttentionCenter from "@/components/reports/AttentionCenter";
 import UnusualChanges from "@/components/reports/UnusualChanges";
+import ExportMenu from "@/components/reports/ExportMenu";
 import { FreshnessBar, SnapshotNote } from "@/components/reports/FreshnessBar";
 
 // ---------------------------------------------------------------------------
@@ -145,6 +146,14 @@ export default function ManagerReportsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
           <p className="text-sm text-gray-500 mt-0.5">How your properties are performing</p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportMenu
+            range={range}
+            scope={propertyId !== null ? { propertyId: propertyId } : { managerClerkId: user?.id }}
+            granularity={granularity}
+            scopeLabel={scopeLabel}
+            disabled={!user?.id}
+          />
         <button
           onClick={() => {
             refetch();
@@ -159,6 +168,7 @@ export default function ManagerReportsPage() {
           <RefreshCw className={"w-4 h-4" + (isFetching ? " animate-spin" : "")} />
           Refresh
         </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

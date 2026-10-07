@@ -6,6 +6,8 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useGetReportingRecordsQuery } from "@/state/api";
 import type { ReportingRecordRow } from "@/state/api";
+import { downloadReport } from "@/lib/downloadReport";
+import type { ExportFileFormat } from "@/lib/downloadReport";
 import { formatDate, formatMoney, prettyStatus } from "@/components/reports/reportHelpers";
 
 // ---------------------------------------------------------------------------
@@ -95,6 +97,8 @@ export default function RecordsPanel({
   onClose: () => void;
 }) {
   const [page, setPage] = useState(1);
+  const [downloading, setDownloading] = useState<ExportFileFormat | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -130,6 +134,31 @@ export default function RecordsPanel({
   const title = request.title ?? data?.title ?? "Records";
   const summaryValue = data ? (data.summary.money ? formatMoney(data.summary.value) : String(data.summary.value)) : "";
   const full = fullPageFor(request.metric);
+
+  // Downloads the whole list behind this number (not only the page on screen) as a file.
+  const startDownload = async (format: ExportFileFormat) => {
+    if (downloading) return;
+    setDownloading(format);
+    setDownloadError(null);
+    try {
+      await downloadReport({
+        report: "records",
+        format: format,
+        from: range.from,
+        to: range.to,
+        propertyId: scope.propertyId,
+        managerClerkId: scope.managerClerkId,
+        metric: request.metric,
+        status: request.status,
+        ay: request.ay,
+        semester: request.semester,
+      });
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : "The file could not be prepared. Please try again.");
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   let body: ReactNode;
   if (!data && isError) {
@@ -215,6 +244,38 @@ export default function RecordsPanel({
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
+          </div>
+        ) : null}
+
+        {data && data.total > 0 ? (
+          <div className="px-5 pt-1 pb-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-500">Download this list</span>
+              <button
+                type="button"
+                onClick={() => startDownload("xlsx")}
+                disabled={downloading !== null}
+                className="h-9 px-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                {downloading === "xlsx" ? "Preparing..." : "Excel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => startDownload("csv")}
+                disabled={downloading !== null}
+                className="h-9 px-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                {downloading === "csv" ? "Preparing..." : "CSV"}
+              </button>
+            </div>
+            {data.total > 2000 ? (
+              <p className="mt-1 text-xs text-gray-500">A file holds at most 2,000 records. This list has {data.total}.</p>
+            ) : null}
+            {downloadError ? (
+              <p role="alert" className="mt-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-800">
+                {downloadError}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
