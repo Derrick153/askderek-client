@@ -38,7 +38,6 @@ import {
   formatDate,
   formatMoney,
   formatPercent,
-  formatTime,
   rangeForPreset,
 } from "@/components/reports/reportHelpers";
 import RecordsPanel, { RecordsLink } from "@/components/reports/RecordsPanel";
@@ -46,6 +45,7 @@ import type { RecordsRequest } from "@/components/reports/RecordsPanel";
 import { HostelInsights } from "@/components/reports/HostelInsights";
 import AttentionCenter from "@/components/reports/AttentionCenter";
 import UnusualChanges from "@/components/reports/UnusualChanges";
+import { FreshnessBar, SnapshotNote } from "@/components/reports/FreshnessBar";
 
 // ---------------------------------------------------------------------------
 // Step 19 - Executive Overview + Trends for managers.
@@ -194,10 +194,18 @@ export default function ManagerReportsPage() {
       </div>
 
       {data ? (
-        <p className="text-xs text-gray-500">
-          {scopeLabel} | {formatDate(data.range.from)} to {formatDate(data.range.to)} | updated{" "}
-          {formatTime(data.generatedAt)}
-        </p>
+        <FreshnessBar
+          summary={scopeLabel + " | " + formatDate(data.range.from) + " to " + formatDate(data.range.to)}
+          stamps={[data.generatedAt, trends?.generatedAt, hostel?.generatedAt, attention?.asOf, anomalies?.asOf]}
+          isFetching={isFetching || hostelFetching || attentionFetching || anomaliesFetching}
+          onRefresh={() => {
+            refetch();
+            if (data) refetchTrends();
+            if (data) refetchHostel();
+            if (data) refetchAttention();
+            if (data) refetchAnomalies();
+          }}
+        />
       ) : null}
 
       {!(isError && !data) ? (
@@ -359,6 +367,7 @@ function TrendsSection({
             <div className="lg:col-span-2">
               <SectionCard title="Occupancy over time" subtitle="Share of beds occupied, from the nightly bed snapshots">
                 <OccupancyLine points={trends.occupancy} />
+                <SnapshotNote points={trends.occupancy} rangeTo={trends.range.to} />
               </SectionCard>
             </div>
           </div>
