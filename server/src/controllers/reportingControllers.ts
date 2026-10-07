@@ -16,6 +16,7 @@ import type { TrendGranularity } from "../lib/reportingService";
 import { getHostelInsights } from "../lib/reportingService";
 import { getReportRecords, recordsQueryProblem } from "../lib/reportingService";
 import type { ReportRecordsQuery } from "../lib/reportingService";
+import { getAttentionItems } from "../lib/reportingService";
 
 // -----------------------------------------------------------------------------
 //  reportingControllers.ts
@@ -306,5 +307,33 @@ export const getReportingRecords = async (req: Request, res: Response): Promise<
   } catch (error: any) {
     console.error("Report records error:", error);
     res.status(500).json({ success: false, message: "Error generating records" });
+  }
+};
+
+// -- GET /api/reports/attention ---------------------------------------------
+// "What needs me right now?" Same permission rules as /overview (managers see their own
+// properties; admins see platform-wide, or one manager / one property). It is as-of-now,
+// so it ignores any date range.
+export const getReportingAttention = async (req: Request, res: Response): Promise<void> => {
+  const scopeResult = await resolveReportScope(req);
+  if (isScopeError(scopeResult)) {
+    res.status(scopeResult.status).json({ success: false, message: scopeResult.message });
+    return;
+  }
+
+  try {
+    const data = await getAttentionItems(scopeResult.scope);
+    res.status(200).json({
+      success: true,
+      message: "Attention items generated",
+      data: {
+        scope: scopeResult.scope,
+        ...data,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    console.error("Report attention error:", error);
+    res.status(500).json({ success: false, message: "Error generating attention items" });
   }
 };

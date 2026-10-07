@@ -1370,3 +1370,739 @@ export async function getReportRecords(scope: ReportScope, range: DateRange, q: 
     rows,
   };
 }
+
+// =============================================================================
+//  ATTENTION CENTER  (Step 19, Phase 8)
+//
+//  "What needs me right now?" - one list across hostel, rent, short-stay and enquiries.
+//  Every item comes from ONE written rule (below), is counted in the database (never loaded
+//  and counted in code), and is scoped inside the query itself. Properties that have been
+//  removed (deletedAt) never produce items. Each item carries its rule in plain words, so
+//  a manager can always see WHY it is on the list. A rule with nothing to show is listed as
+//  "clear" (so a quiet card still says what was checked). A rule that cannot be checked
+//  (database hiccup) is listed as "failed" - it is never silently shown as 0.
+//
+//  Time is "now" (the call time), not the page's date range. Wording of "grace" below:
+//  the platform's own background jobs already close these things automatically (short stays
+//  every 10 minutes, hostel stays and payment deadlines on their schedules), so an item on a
+//  "missed" rule usually means the automatic clean-up has not run yet.
+//
+//  The 19 rules are written out in plain words in attRules() below (each item carries its own
+//  rule text). Urgent = money overdue, or something that has waited too long. Soon = something
+//  the system should have closed by itself, or that is stuck. Info = a heads-up, nothing wrong.
+//
+//  Authorization is NOT handled here - the controller passes in a scope it has verified.
+// =============================================================================
+
+export const ATTENTION_LIMITS = {
+  approvalUrgentDays: 3,
+  hostelGraceHours: 24,
+  shortStayGraceHours: 3,
+  soonWindowDays: 3,
+  leaseWindowDays: 30,
+  leaseUrgentDays: 7,
+  maintenanceStaleDays: 30,
+  examplesPerItem: 5,
+} as const;
+
+export type AttentionSeverity = "urgent" | "soon" | "info";
+export type AttentionArea = "hostel" | "rent" | "short_stay" | "enquiries";
+export type AttentionPage = "applications" | "hostel" | "hostel_occupancy" | "payments" | "bookings" | "enquiries";
+
+export interface AttentionExample {
+  id: number;
+  label: string;
+  detail: string;
+  date: string | null;
+  amount: number | null;
+  property: string;
+}
+
+export interface AttentionItem {
+  key: string;
+  area: AttentionArea;
+  severity: AttentionSeverity;
+  title: string;
+  rule: string;
+  count: number;
+  amount: number | null;
+  page: AttentionPage | null;
+  examples: AttentionExample[];
+}
+
+export interface AttentionResult {
+  asOf: string;
+  summary: { urgent: number; soon: number; info: number; items: number; records: number };
+  items: AttentionItem[];
+  clear: { key: string; area: AttentionArea; title: string; rule: string }[];
+  failed: { key: string; area: AttentionArea; title: string }[];
+  rulesChecked: number;
+}
+
+const ATT_HOUR = 60 * 60 * 1000;
+const ATT_DAY = 24 * ATT_HOUR;
+
+// Properties that were removed never produce items.
+function attProperty(scope: ReportScope): any {
+  const w: any = { deletedAt: null };
+  if (scope.propertyId !== undefined) w.id = scope.propertyId;
+  else if (scope.managerClerkId) w.managerClerkId = scope.managerClerkId;
+  return w;
+}
+
+function attDirect(scope: ReportScope): any {
+  return { property: attProperty(scope) };
+}
+
+function attBed(scope: ReportScope): any {
+  return { room: { isActive: true, property: attProperty(scope) } };
+}
+
+function attIso(d: Date | null | undefined): string | null {
+  return d ? new Date(d).toISOString() : null;
+}
+
+function attPlural(n: number, word: string): string {
+  return n + " " + word + (n === 1 ? "" : "s");
+}
+
+// "3 days ago" / "in 2 days" / "2 hours ago" / "just now"
+function attWhen(d: Date | string, now: Date): string {
+  const diff = new Date(d).getTime() - now.getTime();
+  const abs = Math.abs(diff);
+  const days = Math.floor(abs / ATT_DAY);
+  const hours = Math.floor(abs / ATT_HOUR);
+  let span: string;
+  if (days >= 1) span = attPlural(days, "day");
+  else if (hours >= 1) span = attPlural(hours, "hour");
+  else return diff < 0 ? "just now" : "within the hour";
+  return diff < 0 ? span + " ago" : "in " + span;
+}
+
+// "ends in 2 days" / "ended 18 hours ago" - the wording follows whether the moment is ahead or behind.
+function attEvent(d: Date | string, now: Date, ahead: string, behind: string): string {
+  return (new Date(d).getTime() < now.getTime() ? behind : ahead) + " " + attWhen(d, now);
+}
+
+function attDay(d: Date | string): string {
+  return new Date(d).toISOString().slice(0, 10);
+}
+
+async function attList(delegate: any, where: any, orderBy: any, select: any, sum?: { [field: string]: true }) {
+  const [count, rows, agg] = await Promise.all([
+    delegate.count({ where }),
+    delegate.findMany({ where, orderBy, select, take: ATTENTION_LIMITS.examplesPerItem }),
+    sum ? delegate.aggregate({ where, _sum: sum }) : Promise.resolve(null),
+  ]);
+  return { count: count as number, rows: rows as any[], sums: (agg && agg._sum) || ({} as any) };
+}
+
+const ATT_HOSTEL_SELECT = {
+  id: true,
+  semesterName: true,
+  reference: true,
+  roomNumber: true,
+  amountPaid: true,
+  createdAt: true,
+  checkIn: true,
+  fixedEndDate: true,
+  paymentDueAt: true,
+  property: { select: { name: true } },
+};
+
+const ATT_SHORT_SELECT = {
+  id: true,
+  reference: true,
+  totalAmount: true,
+  checkIn: true,
+  checkOut: true,
+  property: { select: { name: true } },
+};
+
+const ATT_LEASE_SELECT = {
+  id: true,
+  rent: true,
+  startDate: true,
+  endDate: true,
+  frozenAt: true,
+  property: { select: { name: true } },
+};
+
+interface AttRuleResult {
+  severity: AttentionSeverity;
+  count: number;
+  amount: number | null;
+  examples: AttentionExample[];
+}
+
+interface AttRule {
+  key: string;
+  area: AttentionArea;
+  title: string;
+  rule: string;
+  page: AttentionPage | null;
+  run: () => Promise<AttRuleResult>;
+}
+
+function attRules(scope: ReportScope, now: Date): AttRule[] {
+  const L = ATTENTION_LIMITS;
+  const t = now.getTime();
+  const hostelGrace = new Date(t - L.hostelGraceHours * ATT_HOUR);
+  const stayGrace = new Date(t - L.shortStayGraceHours * ATT_HOUR);
+  const soon = new Date(t + L.soonWindowDays * ATT_DAY);
+  const leaseEnd = new Date(t + L.leaseWindowDays * ATT_DAY);
+  const leaseUrgent = new Date(t + L.leaseUrgentDays * ATT_DAY);
+  const staleBed = new Date(t - L.maintenanceStaleDays * ATT_DAY);
+  const urgentWait = new Date(t - L.approvalUrgentDays * ATT_DAY);
+  const direct = attDirect(scope);
+  const liveProperty = attProperty(scope);
+  const STAY_STATUSES = ["ACTIVE", "EXTENDED", "EXPIRING"];
+  const LEASE_LIVE = ["ACTIVE", "EXPIRING_SOON", "EXPIRING_URGENT"];
+  const UNPAID = ["Pending", "PartiallyPaid", "Overdue"];
+
+  const hostelLine = (s: any): string => {
+    const name = String(s.semesterName ?? "").trim();
+    return (name || "Semester") + (s.roomNumber ? " - Room " + s.roomNumber : "");
+  };
+  const hostelEx = (s: any, detail: string, date: Date | null | undefined): AttentionExample => ({
+    id: s.id,
+    label: String(s.reference),
+    detail: hostelLine(s) + " - " + detail,
+    date: attIso(date),
+    amount: s.amountPaid ?? null,
+    property: s.property?.name ?? "",
+  });
+  const shortEx = (b: any, detail: string, date: Date | null | undefined): AttentionExample => ({
+    id: b.id,
+    label: String(b.reference),
+    detail: attDay(b.checkIn) + " to " + attDay(b.checkOut) + " - " + detail,
+    date: attIso(date),
+    amount: b.totalAmount ?? null,
+    property: b.property?.name ?? "",
+  });
+  const leaseEx = (l: any, detail: string, date: Date | null | undefined): AttentionExample => ({
+    id: l.id,
+    label: "Lease " + l.id,
+    detail: attDay(l.startDate) + " to " + attDay(l.endDate) + " - " + detail,
+    date: attIso(date),
+    amount: l.rent ?? null,
+    property: l.property?.name ?? "",
+  });
+  const payEx = (p: any, label: string): AttentionExample => ({
+    id: p.id,
+    label,
+    detail: "due " + attWhen(p.dueDate, now) + " (" + attDay(p.dueDate) + ")",
+    date: attIso(p.dueDate),
+    amount: Math.round((p.amountDue - p.amountPaid) * 100) / 100,
+    property: p.semesterPlan?.property?.name ?? p.lease?.property?.name ?? "",
+  });
+  const ascBy = (field: string) => [{ [field]: "asc" }, { id: "asc" }];
+
+  const rules: AttRule[] = [];
+
+  // ---------------------------------------------------------------- HOSTEL
+  rules.push({
+    key: "hostel_pending_approval",
+    area: "hostel",
+    title: "Hostel bookings waiting for your approval",
+    rule: "Hostel booking requests still waiting for approval. Marked urgent when the oldest has waited more than " + L.approvalUrgentDays + " days.",
+    page: "hostel",
+    run: async () => {
+      const where = { status: "PENDING_APPROVAL", ...direct };
+      const r = await attList(prisma.semesterPlan, where, ascBy("createdAt"), ATT_HOSTEL_SELECT);
+      const oldest = r.rows[0]?.createdAt as Date | undefined;
+      return {
+        severity: oldest && new Date(oldest).getTime() < urgentWait.getTime() ? "urgent" : "soon",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((s) => hostelEx(s, "requested " + attWhen(s.createdAt, now), s.createdAt)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "hostel_payment_window_missed",
+    area: "hostel",
+    title: "Approved hostel bookings past their payment deadline",
+    rule: "Approved hostel bookings whose 24-hour payment deadline has passed but which are still open. The system normally closes these within minutes and frees the bed, so a booking here means that clean-up has not run.",
+    page: "hostel",
+    run: async () => {
+      const where = { status: "AWAITING_PAYMENT", paymentDueAt: { lt: now }, ...direct };
+      const r = await attList(prisma.semesterPlan, where, ascBy("paymentDueAt"), ATT_HOSTEL_SELECT, { amountPaid: true });
+      return {
+        severity: "soon",
+        count: r.count,
+        amount: r.sums.amountPaid ?? 0,
+        examples: r.rows.map((s) => hostelEx(s, "payment was due " + attWhen(s.paymentDueAt, now), s.paymentDueAt)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "hostel_awaiting_payment",
+    area: "hostel",
+    title: "Approved hostel bookings waiting for payment",
+    rule: "Approved hostel bookings where the student still has time to pay (they get 24 hours). The bed is held for them until then.",
+    page: "hostel",
+    run: async () => {
+      const where = { status: "AWAITING_PAYMENT", OR: [{ paymentDueAt: null }, { paymentDueAt: { gte: now } }], ...direct };
+      const order = [{ paymentDueAt: { sort: "asc", nulls: "last" } }, { id: "asc" }];
+      const r = await attList(prisma.semesterPlan, where, order, ATT_HOSTEL_SELECT, { amountPaid: true });
+      return {
+        severity: "info",
+        count: r.count,
+        amount: r.sums.amountPaid ?? 0,
+        examples: r.rows.map((s) =>
+          hostelEx(s, s.paymentDueAt ? "pay " + attWhen(s.paymentDueAt, now) : "no deadline set", s.paymentDueAt)
+        ),
+      };
+    },
+  });
+
+  rules.push({
+    key: "hostel_no_show_risk",
+    area: "hostel",
+    title: "Hostel students who have not checked in",
+    rule: "Paid hostel bookings where the check-in date passed more than " + L.hostelGraceHours + " hours ago, the student has not been checked in, and the booking has not been marked no-show.",
+    page: "hostel",
+    run: async () => {
+      const where = {
+        status: { in: ["ACTIVE", "EXTENDED"] },
+        checkedInAt: null,
+        noShowMarkedAt: null,
+        actualEndDate: null,
+        checkIn: { lt: hostelGrace },
+        OR: [{ fixedEndDate: null }, { fixedEndDate: { gte: now } }],
+        ...direct,
+      };
+      const r = await attList(prisma.semesterPlan, where, ascBy("checkIn"), ATT_HOSTEL_SELECT);
+      return {
+        severity: "soon",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((s) => hostelEx(s, "check-in was " + attWhen(s.checkIn, now), s.checkIn)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "hostel_checkins_soon",
+    area: "hostel",
+    title: "Hostel check-ins coming up",
+    rule: "Paid hostel bookings not yet checked in whose check-in date is from " + L.hostelGraceHours + " hours ago up to " + L.soonWindowDays + " days from now.",
+    page: "hostel",
+    run: async () => {
+      const where = {
+        status: { in: ["ACTIVE", "EXTENDED"] },
+        checkedInAt: null,
+        checkIn: { gte: hostelGrace, lte: soon },
+        ...direct,
+      };
+      const r = await attList(prisma.semesterPlan, where, ascBy("checkIn"), ATT_HOSTEL_SELECT);
+      return {
+        severity: "info",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((s) => hostelEx(s, attEvent(s.checkIn, now, "check-in due", "check-in was due"), s.checkIn)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "hostel_checkouts_soon",
+    area: "hostel",
+    title: "Hostel check-outs coming up",
+    rule: "Hostel stays with a fixed end date from " + L.hostelGraceHours + " hours ago up to " + L.soonWindowDays + " days from now, not yet checked out.",
+    page: "hostel",
+    run: async () => {
+      const where = {
+        status: { in: STAY_STATUSES },
+        actualEndDate: null,
+        closingType: "FIXED",
+        fixedEndDate: { gte: hostelGrace, lte: soon },
+        ...direct,
+      };
+      const r = await attList(prisma.semesterPlan, where, ascBy("fixedEndDate"), ATT_HOSTEL_SELECT);
+      return {
+        severity: "info",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((s) => hostelEx(s, attEvent(s.fixedEndDate, now, "ends", "ended"), s.fixedEndDate)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "hostel_stays_overdue",
+    area: "hostel",
+    title: "Hostel stays past their end date",
+    rule: "Hostel stays with a fixed end date more than " + L.hostelGraceHours + " hours ago that are still open (not checked out). The system normally expires these overnight.",
+    page: "hostel",
+    run: async () => {
+      const where = {
+        status: { in: STAY_STATUSES },
+        actualEndDate: null,
+        closingType: "FIXED",
+        fixedEndDate: { lt: hostelGrace },
+        ...direct,
+      };
+      const r = await attList(prisma.semesterPlan, where, ascBy("fixedEndDate"), ATT_HOSTEL_SELECT);
+      return {
+        severity: "soon",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((s) => hostelEx(s, "ended " + attWhen(s.fixedEndDate, now), s.fixedEndDate)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "hostel_payments_overdue",
+    area: "hostel",
+    title: "Hostel payments overdue",
+    rule: "Hostel payments past their due date and not fully paid, on bookings that are active, extended, expiring or completed. Bookings still waiting for approval or first payment are not counted here.",
+    page: "payments",
+    run: async () => {
+      const where = {
+        paymentStatus: { in: UNPAID },
+        dueDate: { lt: now },
+        semesterPlan: { status: { in: ["ACTIVE", "EXTENDED", "EXPIRING", "COMPLETED"] }, property: liveProperty },
+      };
+      const select = {
+        id: true,
+        amountDue: true,
+        amountPaid: true,
+        dueDate: true,
+        semesterPlan: { select: { reference: true, property: { select: { name: true } } } },
+        lease: { select: { property: { select: { name: true } } } },
+      };
+      const r = await attList(prisma.payment, where, ascBy("dueDate"), select, { amountDue: true, amountPaid: true });
+      return {
+        severity: "urgent",
+        count: r.count,
+        amount: Math.round(((r.sums.amountDue ?? 0) - (r.sums.amountPaid ?? 0)) * 100) / 100,
+        examples: r.rows.map((p) => payEx(p, p.semesterPlan?.reference ? String(p.semesterPlan.reference) : "Payment " + p.id)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "beds_maintenance_stale",
+    area: "hostel",
+    title: "Beds in maintenance for 30+ days",
+    rule: "Beds in maintenance that have not changed for more than " + L.maintenanceStaleDays + " days (by last-updated time). Retired beds and inactive rooms are ignored.",
+    page: "hostel_occupancy",
+    run: async () => {
+      const where = { status: "MAINTENANCE", isRetired: false, updatedAt: { lt: staleBed }, ...attBed(scope) };
+      const select = {
+        id: true,
+        bedNumber: true,
+        updatedAt: true,
+        room: { select: { roomNumber: true, block: true, property: { select: { name: true } } } },
+      };
+      const r = await attList(prisma.bed, where, ascBy("updatedAt"), select);
+      return {
+        severity: "soon",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((b) => ({
+          id: b.id,
+          label: "Room " + (b.room?.roomNumber ?? "?") + " - Bed " + b.bedNumber,
+          detail: (b.room?.block ? "Block " + b.room.block + " - " : "") + "last changed " + attWhen(b.updatedAt, now),
+          date: attIso(b.updatedAt),
+          amount: null,
+          property: b.room?.property?.name ?? "",
+        })),
+      };
+    },
+  });
+
+  // ------------------------------------------------------------------ RENT
+  rules.push({
+    key: "rent_applications_pending",
+    area: "rent",
+    title: "Rental applications waiting for a decision",
+    rule: "Rental applications still marked Pending. Marked urgent when the oldest has waited more than " + L.approvalUrgentDays + " days.",
+    page: "applications",
+    run: async () => {
+      const where = { status: "Pending", ...direct };
+      const select = { id: true, name: true, applicationDate: true, property: { select: { name: true } } };
+      const r = await attList(prisma.application, where, ascBy("applicationDate"), select);
+      const oldest = r.rows[0]?.applicationDate as Date | undefined;
+      return {
+        severity: oldest && new Date(oldest).getTime() < urgentWait.getTime() ? "urgent" : "soon",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((a) => ({
+          id: a.id,
+          label: String(a.name),
+          detail: "applied " + attWhen(a.applicationDate, now),
+          date: attIso(a.applicationDate),
+          amount: null,
+          property: a.property?.name ?? "",
+        })),
+      };
+    },
+  });
+
+  rules.push({
+    key: "rent_payments_overdue",
+    area: "rent",
+    title: "Rent payments overdue",
+    rule: "Rent payments past their due date and not fully paid (Pending, Partly paid or Overdue), on leases of properties you manage.",
+    page: "payments",
+    run: async () => {
+      const where = {
+        paymentStatus: { in: UNPAID },
+        dueDate: { lt: now },
+        lease: { property: liveProperty },
+      };
+      const select = {
+        id: true,
+        amountDue: true,
+        amountPaid: true,
+        dueDate: true,
+        semesterPlan: { select: { reference: true, property: { select: { name: true } } } },
+        lease: { select: { id: true, property: { select: { name: true } } } },
+      };
+      const r = await attList(prisma.payment, where, ascBy("dueDate"), select, { amountDue: true, amountPaid: true });
+      return {
+        severity: "urgent",
+        count: r.count,
+        amount: Math.round(((r.sums.amountDue ?? 0) - (r.sums.amountPaid ?? 0)) * 100) / 100,
+        examples: r.rows.map((p) => payEx(p, p.lease?.id ? "Lease " + p.lease.id : "Payment " + p.id)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "rent_leases_ending",
+    area: "rent",
+    title: "Leases ending soon",
+    rule: "Leases that end within the next " + L.leaseWindowDays + " days and have not been renewed or closed. Marked urgent when one ends within " + L.leaseUrgentDays + " days.",
+    page: null,
+    run: async () => {
+      const where = { status: { in: LEASE_LIVE }, endDate: { gte: now, lte: leaseEnd }, ...direct };
+      const r = await attList(prisma.lease, where, ascBy("endDate"), ATT_LEASE_SELECT);
+      const first = r.rows[0]?.endDate as Date | undefined;
+      return {
+        severity: first && new Date(first).getTime() <= leaseUrgent.getTime() ? "urgent" : "soon",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((l) => leaseEx(l, "ends " + attWhen(l.endDate, now), l.endDate)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "rent_leases_ended_open",
+    area: "rent",
+    title: "Leases past their end date",
+    rule: "Leases whose end date has passed but which are still marked live (not renewed, expired or terminated). The system normally expires these overnight.",
+    page: null,
+    run: async () => {
+      const where = { status: { in: LEASE_LIVE }, endDate: { lt: now }, ...direct };
+      const r = await attList(prisma.lease, where, ascBy("endDate"), ATT_LEASE_SELECT);
+      return {
+        severity: "soon",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((l) => leaseEx(l, "ended " + attWhen(l.endDate, now), l.endDate)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "rent_leases_frozen",
+    area: "rent",
+    title: "Frozen leases",
+    rule: "Leases that are currently frozen.",
+    page: null,
+    run: async () => {
+      const where = { status: "FROZEN", ...direct };
+      const order = [{ frozenAt: { sort: "asc", nulls: "last" } }, { id: "asc" }];
+      const r = await attList(prisma.lease, where, order, ATT_LEASE_SELECT);
+      return {
+        severity: "info",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((l) =>
+          leaseEx(l, l.frozenAt ? "frozen " + attWhen(l.frozenAt, now) : "frozen", l.frozenAt)
+        ),
+      };
+    },
+  });
+
+  // ------------------------------------------------------------ SHORT STAY
+  rules.push({
+    key: "short_stay_no_show_risk",
+    area: "short_stay",
+    title: "Short-stay guests who have not arrived",
+    rule: "Confirmed short stays whose check-in time passed more than " + L.shortStayGraceHours + " hours ago and the guest is not checked in. The system normally marks these no-show within minutes.",
+    page: "bookings",
+    run: async () => {
+      const where = { status: "CONFIRMED", checkIn: { lt: stayGrace }, ...direct };
+      const r = await attList(prisma.booking, where, ascBy("checkIn"), ATT_SHORT_SELECT);
+      return {
+        severity: "soon",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((b) => shortEx(b, "check-in was " + attWhen(b.checkIn, now), b.checkIn)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "short_stay_arrivals_soon",
+    area: "short_stay",
+    title: "Short-stay arrivals coming up",
+    rule: "Confirmed short stays with check-in from " + L.shortStayGraceHours + " hours ago up to " + L.soonWindowDays + " days from now.",
+    page: "bookings",
+    run: async () => {
+      const where = { status: "CONFIRMED", checkIn: { gte: stayGrace, lte: soon }, ...direct };
+      const r = await attList(prisma.booking, where, ascBy("checkIn"), ATT_SHORT_SELECT);
+      return {
+        severity: "info",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((b) => shortEx(b, attEvent(b.checkIn, now, "arrives", "was due"), b.checkIn)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "short_stay_departures_soon",
+    area: "short_stay",
+    title: "Short-stay departures coming up",
+    rule: "Guests currently checked in whose check-out is from " + L.shortStayGraceHours + " hours ago up to " + L.soonWindowDays + " days from now.",
+    page: "bookings",
+    run: async () => {
+      const where = { status: "CHECKED_IN", checkOut: { gte: stayGrace, lte: soon }, ...direct };
+      const r = await attList(prisma.booking, where, ascBy("checkOut"), ATT_SHORT_SELECT);
+      return {
+        severity: "info",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((b) => shortEx(b, attEvent(b.checkOut, now, "leaves", "check-out was"), b.checkOut)),
+      };
+    },
+  });
+
+  rules.push({
+    key: "short_stay_checkout_overdue",
+    area: "short_stay",
+    title: "Short-stay guests past their check-out",
+    rule: "Guests still marked checked in more than " + L.shortStayGraceHours + " hours after their check-out time. The system normally checks these out automatically within minutes.",
+    page: "bookings",
+    run: async () => {
+      const where = { status: "CHECKED_IN", checkOut: { lt: stayGrace }, ...direct };
+      const r = await attList(prisma.booking, where, ascBy("checkOut"), ATT_SHORT_SELECT);
+      return {
+        severity: "soon",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((b) => shortEx(b, "check-out was " + attWhen(b.checkOut, now), b.checkOut)),
+      };
+    },
+  });
+
+  // ------------------------------------------------------------- ENQUIRIES
+  rules.push({
+    key: "enquiries_unread",
+    area: "enquiries",
+    title: "Enquiries nobody has opened",
+    rule: "New enquiries you have not opened yet (not archived). Oldest first, by last activity.",
+    page: "enquiries",
+    run: async () => {
+      const where = { status: "NEW", isRead: false, isArchived: false, ...direct };
+      const select = { id: true, enquiryType: true, updatedAt: true, property: { select: { name: true } } };
+      const r = await attList(prisma.enquiry, where, ascBy("updatedAt"), select);
+      return {
+        severity: "info",
+        count: r.count,
+        amount: null,
+        examples: r.rows.map((e) => ({
+          id: e.id,
+          label: "Enquiry " + e.id,
+          detail: String(e.enquiryType) + " - last activity " + attWhen(e.updatedAt, now),
+          date: attIso(e.updatedAt),
+          amount: null,
+          property: e.property?.name ?? "",
+        })),
+      };
+    },
+  });
+
+  return rules;
+}
+
+// The written rules, without running any of them (used by tests and documentation).
+export function getAttentionRuleCatalog() {
+  return attRules({}, new Date()).map((r) => ({ key: r.key, area: r.area, title: r.title, rule: r.rule, page: r.page }));
+}
+
+const ATT_SEVERITY_RANK: { [s: string]: number } = { urgent: 0, soon: 1, info: 2 };
+const ATT_AREA_RANK: { [a: string]: number } = { hostel: 0, rent: 1, short_stay: 2, enquiries: 3 };
+
+export async function getAttentionItems(scope: ReportScope, now: Date = new Date()): Promise<AttentionResult> {
+  const rules = attRules(scope, now);
+  const items: (AttentionItem & { order: number })[] = [];
+  const clear: AttentionResult["clear"] = [];
+  const failed: AttentionResult["failed"] = [];
+
+  // One rule at a time (each rule fires its own small group of queries) - kind to the free database.
+  for (let i = 0; i < rules.length; i++) {
+    const r = rules[i];
+    let res: AttRuleResult | null = null;
+    for (let attempt = 1; attempt <= 2 && !res; attempt++) {
+      try {
+        res = await r.run();
+      } catch (error: any) {
+        if (attempt === 2) console.error("Attention rule failed:", r.key, error?.message ?? error);
+        else await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    }
+    if (!res) {
+      failed.push({ key: r.key, area: r.area, title: r.title });
+      continue;
+    }
+    if (res.count === 0) {
+      clear.push({ key: r.key, area: r.area, title: r.title, rule: r.rule });
+      continue;
+    }
+    items.push({
+      key: r.key,
+      area: r.area,
+      severity: res.severity,
+      title: r.title,
+      rule: r.rule,
+      count: res.count,
+      amount: res.amount === null ? null : Math.round(res.amount * 100) / 100,
+      page: r.page,
+      examples: res.examples,
+      order: i,
+    });
+  }
+
+  items.sort(
+    (a, b) =>
+      ATT_SEVERITY_RANK[a.severity] - ATT_SEVERITY_RANK[b.severity] ||
+      ATT_AREA_RANK[a.area] - ATT_AREA_RANK[b.area] ||
+      a.order - b.order
+  );
+
+  const summary = { urgent: 0, soon: 0, info: 0, items: items.length, records: 0 };
+  for (const it of items) {
+    summary[it.severity] += 1;
+    summary.records += it.count;
+  }
+
+  return {
+    asOf: now.toISOString(),
+    summary,
+    items: items.map(({ order, ...rest }) => rest),
+    clear,
+    failed,
+    rulesChecked: rules.length,
+  };
+}
