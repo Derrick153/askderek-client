@@ -29,6 +29,7 @@ import {
   EXPORT_MAX_ROWS,
 } from "../lib/reportExport";
 import type { ExportDocument, ExportFormat } from "../lib/reportExport";
+import { auditReportExport } from "../lib/reportAudit";
 
 // -----------------------------------------------------------------------------
 //  reportingControllers.ts
@@ -516,7 +517,18 @@ export const exportReport = async (req: Request, res: Response): Promise<void> =
     const file = await renderExport(doc, fileFormat);
     const fileName = exportFileName(report, fileFormat, range, nameExtra);
 
-    // Phase 13 (audit trail): record REPORT_EXPORTED here - who, which report, format, scope, range.
+    // Phase 13 (audit trail): who exported what is recorded now; REPORT_DOWNLOADED follows once the file has gone out.
+    auditReportExport(req, res, {
+      report,
+      format: fileFormat,
+      granularity: report === "trends" ? granularity : undefined,
+      metric: report === "records" && recordsQuery ? recordsQuery.metric : undefined,
+      status: report === "records" && recordsQuery ? recordsQuery.status : undefined,
+      scope,
+      range,
+      fileName,
+      bytes: file.length,
+    });
     // Phase 14 (security): a rate limit for this route is added in reportingRoutes.ts.
 
     res.setHeader("Content-Type", EXPORT_CONTENT_TYPES[fileFormat]);

@@ -350,3 +350,51 @@ export const logUserEvent = async (opts: {
     );
   }
 };
+
+// -----------------------------------------------------------------------------
+//  LOG REPORT EVENT  (Step 19, Phase 13)
+//
+//  Records who looked at, built or downloaded a report. Reports hold money figures and
+//  tenant names, so this is the same kind of evidence as the other entries above.
+//    REPORT_GENERATED  - the Reports page (or one list behind a number) was produced for someone
+//    REPORT_EXPORTED   - a download file (CSV, Excel or PDF) was built for someone
+//    REPORT_DOWNLOADED - that file was handed over completely (a cut-off download has no such entry)
+//  An admin caller is recorded as performedBy "admin" with adminId (like logAdminEvent). Anyone
+//  else is "user". Either way the Clerk id and role are inside details, which is a small JSON
+//  text, so the entry can be read back by a program. Only choices are stored (report, format,
+//  scope, dates), never the figures or tenant names inside the report.
+//  Like every helper here it never throws: a failed audit entry must not break the report.
+// -----------------------------------------------------------------------------
+export type ReportAuditAction = "REPORT_GENERATED" | "REPORT_EXPORTED" | "REPORT_DOWNLOADED";
+
+export const logReportEvent = async (opts: {
+  action:       ReportAuditAction;
+  actorClerkId: string;
+  target:       string;
+  details?:     Record<string, unknown>;
+}): Promise<void> => {
+  try {
+    const actor = await prisma.user.findUnique({
+      where:  { clerkId: opts.actorClerkId },
+      select: { id: true, role: true },
+    });
+    const isAdmin = actor?.role === "ADMIN";
+    await prisma.auditLog.create({
+      data: {
+        performedBy: isAdmin ? "admin" : "user",
+        adminId:     isAdmin && actor ? actor.id : null,
+        action:      opts.action,
+        target:      opts.target,
+        details:     JSON.stringify({
+          actorClerkId: opts.actorClerkId,
+          actorRole:    actor ? actor.role : "UNKNOWN",
+          ...(opts.details ?? {}),
+        }),
+        // Looking at a page is routine, so it is marked LOW; files leaving the platform are NORMAL.
+        priority:    opts.action === "REPORT_GENERATED" ? "LOW" : "NORMAL",
+      },
+    });
+  } catch (err) {
+    console.error(`[AUDIT] Failed to log report event "${opts.action}":`, err);
+  }
+};
