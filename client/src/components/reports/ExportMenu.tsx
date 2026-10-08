@@ -126,7 +126,7 @@ export default function ExportMenu({
     ));
 
   return (
-    <div ref={wrapper} className="relative">
+    <div ref={wrapper} className="sm:relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -144,7 +144,7 @@ export default function ExportMenu({
         <div
           role="menu"
           aria-label="Download this report"
-          className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 z-30 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 bg-white shadow-lg p-2"
+          className="absolute left-0 right-0 sm:left-auto sm:right-0 top-full mt-2 z-30 sm:w-72 rounded-xl border border-gray-200 bg-white shadow-lg p-2"
         >
           <p className="px-2 pt-1 pb-2 text-xs text-gray-500">
             {scopeLabel ? scopeLabel + " - " : ""}

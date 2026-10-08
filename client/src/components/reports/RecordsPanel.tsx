@@ -8,6 +8,7 @@ import { useGetReportingRecordsQuery } from "@/state/api";
 import type { ReportingRecordRow } from "@/state/api";
 import { downloadReport } from "@/lib/downloadReport";
 import type { ExportFileFormat } from "@/lib/downloadReport";
+import SaveListRow from "@/components/reports/SaveListRow";
 import { formatDate, formatMoney, prettyStatus } from "@/components/reports/reportHelpers";
 
 // ---------------------------------------------------------------------------
@@ -90,11 +91,13 @@ export default function RecordsPanel({
   scope,
   range,
   onClose,
+  preset,
 }: {
   request: RecordsRequest;
   scope: RecordsScope;
   range: { from: string; to: string };
   onClose: () => void;
+  preset?: string;
 }) {
   const [page, setPage] = useState(1);
   const [downloading, setDownloading] = useState<ExportFileFormat | null>(null);
@@ -277,6 +280,15 @@ export default function RecordsPanel({
               </p>
             ) : null}
           </div>
+        ) : null}
+
+        {preset ? (
+          <SaveListRow
+            preset={preset}
+            propertyId={scope.propertyId ?? null}
+            request={request}
+            defaultName={title}
+          />
         ) : null}
 
         {full ? (

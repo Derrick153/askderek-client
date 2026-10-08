@@ -46,6 +46,8 @@ import { HostelInsights } from "@/components/reports/HostelInsights";
 import AttentionCenter from "@/components/reports/AttentionCenter";
 import UnusualChanges from "@/components/reports/UnusualChanges";
 import ExportMenu from "@/components/reports/ExportMenu";
+import SavedReportsMenu from "@/components/reports/SavedReportsMenu";
+import type { SavedReport } from "@/state/savedReportsApi";
 import { FreshnessBar, SnapshotNote } from "@/components/reports/FreshnessBar";
 
 // ---------------------------------------------------------------------------
@@ -100,6 +102,31 @@ export default function ManagerReportsPage() {
     refetch: refetchAttention,
   } = useGetReportingAttentionQuery(attentionArgs, { skip: !user?.id || !data });
 
+  // Saved reports (Phase 12): open a saved view of this page, and tell the menu a property's name.
+  const savedPropertyName = (id: number): string | null => {
+    const found = properties.find((p: any) => p.id === id);
+    return found && typeof found.name === "string" ? found.name : null;
+  };
+  const applySavedReport = (report: SavedReport): string | null => {
+    const wanted = report.filters.propertyId;
+    const stillMine = wanted === null || properties.some((p: any) => p.id === wanted);
+    setPreset(report.filters.preset);
+    setPropertyId(stillMine ? wanted : null);
+    if (report.reportType === "overview") {
+      setGranularityChoice(report.filters.granularity);
+      setRecords(null);
+    } else {
+      setRecords({
+        metric: report.filters.metric,
+        status: report.filters.status,
+        ay: report.filters.ay,
+        semester: report.filters.semester,
+        title: report.filters.title,
+      });
+    }
+    return stillMine ? null : "That property is no longer in your list, so all your properties are shown.";
+  };
+
   // Daily for short ranges, weekly for 90 days - unless the manager picks one.
   const granularity: Granularity = granularityChoice ?? (preset === "90d" ? "week" : "day");
 
@@ -146,7 +173,13 @@ export default function ManagerReportsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
           <p className="text-sm text-gray-500 mt-0.5">How your properties are performing</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex flex-wrap items-center gap-2">
+          <SavedReportsMenu
+            current={{ preset: preset, propertyId: propertyId, granularity: granularityChoice }}
+            onApply={applySavedReport}
+            propertyName={savedPropertyName}
+            disabled={!user?.id || !propertiesRaw}
+          />
           <ExportMenu
             range={range}
             scope={propertyId !== null ? { propertyId: propertyId } : { managerClerkId: user?.id }}
@@ -285,6 +318,7 @@ export default function ManagerReportsPage() {
           request={records}
           scope={propertyId !== null ? { propertyId: propertyId } : { managerClerkId: user?.id }}
           range={range}
+          preset={preset}
           onClose={() => setRecords(null)}
         />
       ) : null}
