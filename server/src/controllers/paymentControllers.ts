@@ -1,4 +1,4 @@
-﻿import { Request, Response }  from "express";
+import { Request, Response }  from "express";
 import { prisma }             from "../lib/prisma";
 import {
   paystackInitialize,
@@ -375,13 +375,17 @@ export const getEarningsByManager = async (
     // Commission totals still come from the real Commission ledger -
     // that is the actual money-movement record, and correctly shows
     // zero commission on payments (like cash) where none was charged.
-    const commissions = await prisma.commission.findMany({
+    // Phase 15: the database adds the totals up and sends one small answer, instead of sending
+    // every commission row to this server to be added here.
+    const commissionTotals = await prisma.commission.aggregate({
       where: { managerClerkId },
+      _sum: { grossAmount: true, commissionAmount: true, netAmount: true },
+      _count: { _all: true },
     });
 
-    const totalGross      = commissions.reduce((sum, c) => sum + c.grossAmount,      0);
-    const totalCommission = commissions.reduce((sum, c) => sum + c.commissionAmount, 0);
-    const totalNet        = commissions.reduce((sum, c) => sum + c.netAmount,        0);
+    const totalGross      = Math.round((commissionTotals._sum.grossAmount      ?? 0) * 100) / 100;
+    const totalCommission = Math.round((commissionTotals._sum.commissionAmount ?? 0) * 100) / 100;
+    const totalNet        = Math.round((commissionTotals._sum.netAmount        ?? 0) * 100) / 100;
 
     res.status(200).json({
       payments,
@@ -389,7 +393,7 @@ export const getEarningsByManager = async (
         totalGross,
         totalCommission,
         totalNet,
-        totalTransactions: commissions.length,
+        totalTransactions: commissionTotals._count._all,
       },
     });
   } catch (err: unknown) {

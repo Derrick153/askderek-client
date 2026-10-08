@@ -1403,7 +1403,25 @@ export const ATTENTION_LIMITS = {
   leaseUrgentDays: 7,
   maintenanceStaleDays: 30,
   examplesPerItem: 5,
+  // Phase 15: the longest the whole list may take, in milliseconds. A check that has not finished
+  // by then is reported as "could not be checked" - never as "nothing to do".
+  maxMs: 30_000,
 } as const;
+
+// Phase 15: waits for one piece of work, but only for `ms` milliseconds. The abandoned work may
+// still finish in the background; its answer is simply ignored.
+export const TIME_LIMIT_MESSAGE = "REPORT_TIME_LIMIT";
+async function raceDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(TIME_LIMIT_MESSAGE)), Math.max(1, ms));
+  });
+  try {
+    return await Promise.race([work, limit]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export type AttentionSeverity = "urgent" | "soon" | "info";
 export type AttentionArea = "hostel" | "rent" | "short_stay" | "enquiries";
@@ -2044,21 +2062,35 @@ export function getAttentionRuleCatalog() {
 const ATT_SEVERITY_RANK: { [s: string]: number } = { urgent: 0, soon: 1, info: 2 };
 const ATT_AREA_RANK: { [a: string]: number } = { hostel: 0, rent: 1, short_stay: 2, enquiries: 3 };
 
-export async function getAttentionItems(scope: ReportScope, now: Date = new Date()): Promise<AttentionResult> {
+export async function getAttentionItems(
+  scope: ReportScope,
+  now: Date = new Date(),
+  maxMs: number = ATTENTION_LIMITS.maxMs
+): Promise<AttentionResult> {
   const rules = attRules(scope, now);
   const items: (AttentionItem & { order: number })[] = [];
   const clear: AttentionResult["clear"] = [];
   const failed: AttentionResult["failed"] = [];
+  const deadline = Date.now() + maxMs;
+  let timeUp = false;
 
   // One rule at a time (each rule fires its own small group of queries) - kind to the free database.
   for (let i = 0; i < rules.length; i++) {
     const r = rules[i];
     let res: AttRuleResult | null = null;
-    for (let attempt = 1; attempt <= 2 && !res; attempt++) {
+    for (let attempt = 1; attempt <= 2 && !res && !timeUp; attempt++) {
+      const left = deadline - Date.now();
+      if (left <= 0) {
+        timeUp = true;
+        break;
+      }
       try {
-        res = await r.run();
+        res = await raceDeadline(r.run(), left);
       } catch (error: any) {
-        if (attempt === 2) console.error("Attention rule failed:", r.key, error?.message ?? error);
+        if (error && error.message === TIME_LIMIT_MESSAGE) {
+          timeUp = true;
+          console.error("Attention checks stopped at the time limit; the check that was not finished:", r.key);
+        } else if (attempt === 2) console.error("Attention rule failed:", r.key, error?.message ?? error);
         else await new Promise((resolve) => setTimeout(resolve, 300));
       }
     }
@@ -2150,6 +2182,8 @@ export const ANOMALY_LIMITS = {
   roomMinBeds: 6,
   // all rules
   examplesPerRule: 5,
+  // Phase 15: the longest the three checks may take together, in milliseconds (see ATTENTION_LIMITS).
+  maxMs: 30_000,
 };
 
 export type AnomalyKey = "occupancy_drop" | "payment_failures" | "rooms_under_used";
@@ -2840,19 +2874,33 @@ export function getAnomalyRuleCatalog() {
   return anoRules({}, new Date()).map((r) => ({ key: r.key, title: r.title, rule: r.rule }));
 }
 
-export async function getAnomalies(scope: ReportScope, now: Date = new Date()): Promise<AnomalyResult> {
+export async function getAnomalies(
+  scope: ReportScope,
+  now: Date = new Date(),
+  maxMs: number = ANOMALY_LIMITS.maxMs
+): Promise<AnomalyResult> {
   const rules = anoRules(scope, now);
   const results: AnomalyRuleResult[] = [];
+  const deadline = Date.now() + maxMs;
+  let timeUp = false;
 
   // One rule at a time, retried once - kind to the free database.
   for (let i = 0; i < rules.length; i++) {
     const r = rules[i];
     let out: AnoOut | null = null;
-    for (let attempt = 1; attempt <= 2 && !out; attempt++) {
+    for (let attempt = 1; attempt <= 2 && !out && !timeUp; attempt++) {
+      const left = deadline - Date.now();
+      if (left <= 0) {
+        timeUp = true;
+        break;
+      }
       try {
-        out = await r.run();
+        out = await raceDeadline(r.run(), left);
       } catch (error: any) {
-        if (attempt === 2) console.error("Anomaly rule failed:", r.key, error?.message ?? error);
+        if (error && error.message === TIME_LIMIT_MESSAGE) {
+          timeUp = true;
+          console.error("Unusual-change checks stopped at the time limit; the check that was not finished:", r.key);
+        } else if (attempt === 2) console.error("Anomaly rule failed:", r.key, error?.message ?? error);
         else await new Promise((resolve) => setTimeout(resolve, 300));
       }
     }
