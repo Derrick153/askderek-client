@@ -1468,3 +1468,20 @@ model OccupancySnapshot {
   @@index([propertyId, snapshotDate])
   @@index([snapshotDate])
 }
+
+// Step 19 Phase 12 - a saved view of the Reports page (foundation only: no scheduler, no sharing).
+// ownerClerkId is the Clerk id of the person who saved it. It is a plain column on purpose (no
+// foreign key), so this table stays completely separate from every existing model.
+// reportType is "overview" (the page) or "records" (one list behind a number). filters holds only
+// what is needed to reopen the same view; the server checks it before anything is saved.
+model SavedReport {
+  id            Int      @id @default(autoincrement())
+  ownerClerkId  String
+  name          String
+  reportType    String
+  filters       Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([ownerClerkId, name])
+}
