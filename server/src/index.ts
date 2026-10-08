@@ -54,6 +54,10 @@ import { startOccupancySnapshotJob } from "./jobs/occupancySnapshotJob";
 dotenv.config();
 
 const app      = express();
+// Render (like any host) puts its own proxy in front of this server. Without this line every visitor
+// looks like the same address, so address-based limits and audit entries would all share one bucket.
+// TRUST_PROXY_HOPS = how many proxies sit between the visitor and this server (1 unless told otherwise).
+app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
 const PORT     = process.env.PORT     || 5000;
 const NODE_ENV = process.env.NODE_ENV || "development";
 
@@ -85,6 +89,8 @@ const corsOptions: cors.CorsOptions = {
 const generalLimiter = rateLimit({
   windowMs:        15 * 60 * 1000,
   max:             100,
+  // Reports have their own limits (see lib/reportGuards.ts); the Reports page makes 6 or 7 calls per load.
+  skip:            (req) => req.originalUrl.startsWith("/api/reports"),
   message:         { success: false, message: "Too many requests. Please try again later." },
   standardHeaders: true,
   legacyHeaders:   false,

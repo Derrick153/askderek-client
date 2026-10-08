@@ -3,7 +3,7 @@ import { logReportEvent } from "./auditService";
 import type { DateRange } from "./reportingService";
 
 // =============================================================================
-//  reportAudit.ts  (Step 19, Phase 13)
+//  reportAudit.ts  (Step 19, Phases 13 and 14)
 //
 //  Writes the audit trail for reports, using logReportEvent from auditService.ts:
 //    * auditReportView("overview" | "records") - a route step. After a request has been ANSWERED
@@ -11,15 +11,21 @@ import type { DateRange } from "./reportingService";
 //      generated. The Reports page asks for its overview again on every refresh or date change, so
 //      the same person looking at the same scope is recorded once per 15 minutes. A list behind a
 //      number is recorded when its first page is opened (page 2 and later are not).
+//    * auditReportDenied - a route step. When a report request is REFUSED with 403 (someone asked for
+//      a property or a manager that is not theirs) it records REPORT_ACCESS_DENIED, once per person,
+//      scope and report per 15 minutes, so a person trying property after property cannot fill the log.
 //    * auditReportExport(...) - called by the download handler once the file is built: records
 //      REPORT_EXPORTED, then REPORT_DOWNLOADED when the whole file has been handed over.
+//  Every entry keeps the network address as this server sees it (ip) and the raw X-Forwarded-For
+//  header (xff, cut to 200 characters), so the proxy set-up can be checked and odd traffic traced.
 //  Audit entries are written after the answer is on its way and can never change it: nothing here
 //  throws, and nothing waits for the database.
 // =============================================================================
 
-const VIEW_QUIET_MS = 15 * 60 * 1000;
+const QUIET_MS = 15 * 60 * 1000;
 const MAX_REMEMBERED = 500;
 const lastViewLogged = new Map<string, number>();
+const lastDeniedLogged = new Map<string, number>();
 
 const callerOf = (req: Request): string | undefined => {
   const id = (req as any).auth?.userId;
@@ -37,6 +43,8 @@ const safeIso = (v: unknown): string | undefined => {
 const shortText = (v: unknown, max: number): string | undefined =>
   typeof v === "string" && v.trim() !== "" ? v.trim().slice(0, max) : undefined;
 
+const xffOf = (req: Request): string | undefined => shortText((req as any).headers?.["x-forwarded-for"], 200);
+
 export function scopeLabelForAudit(scope: { propertyId?: number | null; managerClerkId?: string | null }): string {
   if (scope.propertyId !== undefined && scope.propertyId !== null) return "property:" + scope.propertyId;
   if (scope.managerClerkId) return "manager:" + scope.managerClerkId;
@@ -50,11 +58,20 @@ function scopeFromQuery(req: Request): string {
   return scopeLabelForAudit({ managerClerkId: shortText(req.query.managerClerkId, 100) });
 }
 
-function forgetOldViews(now: number): void {
-  lastViewLogged.forEach((at, key) => {
-    if (now - at >= VIEW_QUIET_MS) lastViewLogged.delete(key);
-  });
-  if (lastViewLogged.size >= MAX_REMEMBERED) lastViewLogged.clear();
+// True when this key has not been recorded in the last 15 minutes (and remembers it now).
+// The memory is bounded: old keys are dropped, and if 500 are still fresh the list starts over.
+function firstInQuietPeriod(memory: Map<string, number>, key: string): boolean {
+  const now = Date.now();
+  const last = memory.get(key);
+  if (last !== undefined && now - last < QUIET_MS) return false;
+  if (memory.size >= MAX_REMEMBERED) {
+    memory.forEach((at, k) => {
+      if (now - at >= QUIET_MS) memory.delete(k);
+    });
+    if (memory.size >= MAX_REMEMBERED) memory.clear();
+  }
+  memory.set(key, now);
+  return true;
 }
 
 export const auditReportView =
@@ -72,15 +89,11 @@ export const auditReportView =
           from: safeIso(req.query.from),
           to: safeIso(req.query.to),
           ip: ipOf(req),
+          xff: xffOf(req),
         };
         let target = "report:overview";
         if (kind === "overview") {
-          const now = Date.now();
-          const key = actor + "|" + scope;
-          const last = lastViewLogged.get(key);
-          if (last !== undefined && now - last < VIEW_QUIET_MS) return;
-          if (lastViewLogged.size >= MAX_REMEMBERED) forgetOldViews(now);
-          lastViewLogged.set(key, now);
+          if (!firstInQuietPeriod(lastViewLogged, actor + "|" + scope)) return;
         } else {
           if (String(req.query.page ?? "1") !== "1") return;
           const metric = shortText(req.query.metric, 60);
@@ -97,6 +110,30 @@ export const auditReportView =
     });
     next();
   };
+
+// Put this on every report route that takes a property or manager in the query. It records only a 403
+// (a refusal by the permission check). A missing property (404) or a bad value (400) is not an attack.
+export const auditReportDenied = (req: Request, res: Response, next: NextFunction): void => {
+  res.on("finish", () => {
+    try {
+      if (res.statusCode !== 403) return;
+      const actor = callerOf(req);
+      if (!actor) return;
+      const route = shortText(String(req.path ?? "").replace(/^\/+/, ""), 30) ?? "unknown";
+      const scope = scopeFromQuery(req);
+      if (!firstInQuietPeriod(lastDeniedLogged, actor + "|" + scope + "|" + route)) return;
+      void logReportEvent({
+        action: "REPORT_ACCESS_DENIED",
+        actorClerkId: actor,
+        target: "report:" + route,
+        details: { report: route, scope: scope, ip: ipOf(req), xff: xffOf(req) },
+      });
+    } catch (error) {
+      console.error("[AUDIT] Report denial entry could not be prepared:", error);
+    }
+  });
+  next();
+};
 
 export interface ReportExportAudit {
   report: string;
@@ -129,6 +166,7 @@ export function auditReportExport(req: Request, res: Response, info: ReportExpor
       fileName: info.fileName,
       bytes: info.bytes,
       ip: ipOf(req),
+      xff: xffOf(req),
     };
     void logReportEvent({ action: "REPORT_EXPORTED", actorClerkId: actor, target: target, details: details });
     res.on("finish", () => {

@@ -359,13 +359,14 @@ export const logUserEvent = async (opts: {
 //    REPORT_GENERATED  - the Reports page (or one list behind a number) was produced for someone
 //    REPORT_EXPORTED   - a download file (CSV, Excel or PDF) was built for someone
 //    REPORT_DOWNLOADED - that file was handed over completely (a cut-off download has no such entry)
+//    REPORT_ACCESS_DENIED - a person asked for a property or manager that is not theirs (refused with 403)
 //  An admin caller is recorded as performedBy "admin" with adminId (like logAdminEvent). Anyone
 //  else is "user". Either way the Clerk id and role are inside details, which is a small JSON
 //  text, so the entry can be read back by a program. Only choices are stored (report, format,
 //  scope, dates), never the figures or tenant names inside the report.
 //  Like every helper here it never throws: a failed audit entry must not break the report.
 // -----------------------------------------------------------------------------
-export type ReportAuditAction = "REPORT_GENERATED" | "REPORT_EXPORTED" | "REPORT_DOWNLOADED";
+export type ReportAuditAction = "REPORT_GENERATED" | "REPORT_EXPORTED" | "REPORT_DOWNLOADED" | "REPORT_ACCESS_DENIED";
 
 export const logReportEvent = async (opts: {
   action:       ReportAuditAction;
@@ -390,8 +391,8 @@ export const logReportEvent = async (opts: {
           actorRole:    actor ? actor.role : "UNKNOWN",
           ...(opts.details ?? {}),
         }),
-        // Looking at a page is routine, so it is marked LOW; files leaving the platform are NORMAL.
-        priority:    opts.action === "REPORT_GENERATED" ? "LOW" : "NORMAL",
+        // Looking at a page is routine (LOW); a file leaving the platform is NORMAL; a refused attempt is HIGH.
+        priority:    opts.action === "REPORT_ACCESS_DENIED" ? "HIGH" : opts.action === "REPORT_GENERATED" ? "LOW" : "NORMAL",
       },
     });
   } catch (err) {
