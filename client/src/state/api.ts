@@ -784,6 +784,16 @@ function entityTag<T extends { id: number }>(
 // API SLICE
 // -----------------------------------------------------------------------------
 
+// Phase 15: the server may reuse a report it worked out in the last minute. Pressing "Refresh" calls
+// askReportsFresh() first, and for the next few seconds every report request asks for a new answer.
+let reportsFreshUntil = 0;
+export function askReportsFresh(): void {
+  reportsFreshUntil = Date.now() + 15000;
+}
+function freshParam(params: URLSearchParams): void {
+  if (Date.now() < reportsFreshUntil) params.set("refresh", "1");
+}
+
 export const api = createApi({
   reducerPath: "api",
 
@@ -2061,6 +2071,7 @@ getBookingTimeline: build.query<{ booking: { id: number; reference: string; stat
         if (args.managerClerkId) params.set("managerClerkId", args.managerClerkId);
         if (args.from) params.set("from", args.from);
         if (args.to) params.set("to", args.to);
+        freshParam(params);
         const qs = params.toString();
         return qs ? "reports/overview?" + qs : "reports/overview";
       },
@@ -2078,6 +2089,7 @@ getBookingTimeline: build.query<{ booking: { id: number; reference: string; stat
         if (args.from) params.set("from", args.from);
         if (args.to) params.set("to", args.to);
         if (args.granularity) params.set("granularity", args.granularity);
+        freshParam(params);
         const qs = params.toString();
         return qs ? "reports/trends?" + qs : "reports/trends";
       },
@@ -2113,6 +2125,7 @@ getBookingTimeline: build.query<{ booking: { id: number; reference: string; stat
         const params = new URLSearchParams();
         if (args.propertyId !== undefined) params.set("propertyId", String(args.propertyId));
         if (args.managerClerkId) params.set("managerClerkId", args.managerClerkId);
+        freshParam(params);
         return "reports/attention?" + params.toString();
       },
       transformResponse: (response: any): ReportingAttention => response?.data ?? response,
@@ -2127,6 +2140,7 @@ getBookingTimeline: build.query<{ booking: { id: number; reference: string; stat
         const params = new URLSearchParams();
         if (args.propertyId !== undefined) params.set("propertyId", String(args.propertyId));
         if (args.managerClerkId) params.set("managerClerkId", args.managerClerkId);
+        freshParam(params);
         return "reports/anomalies?" + params.toString();
       },
       transformResponse: (response: any): ReportingAnomalies => response?.data ?? response,
@@ -2143,6 +2157,7 @@ getBookingTimeline: build.query<{ booking: { id: number; reference: string; stat
         if (args.managerClerkId) params.set("managerClerkId", args.managerClerkId);
         if (args.from) params.set("from", args.from);
         if (args.to) params.set("to", args.to);
+        freshParam(params);
         const qs = params.toString();
         return qs ? "reports/hostel?" + qs : "reports/hostel";
       },

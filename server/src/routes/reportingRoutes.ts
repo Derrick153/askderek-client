@@ -13,6 +13,7 @@ import {
 import { listSavedReports, createSavedReport, deleteSavedReport } from "../controllers/savedReportControllers";
 import { auditReportView, auditReportDenied } from "../lib/reportAudit";
 import { guarded, noStore, reportIpLimit, reportReadLimit, reportExportLimit, reportSavedLimit } from "../lib/reportGuards";
+import { cachedReport } from "../lib/reportPerf";
 const router = Router();
 
 // Every report route: private (never cached), a generous limit per network address first, then the
@@ -25,12 +26,12 @@ const exportSteps = [reportAuth, reportExportLimit, auditReportDenied];
 const savedSteps = [reportAuth, reportSavedLimit];
 
 // Managers see their own properties; admins see platform-wide.
-router.get("/overview", ...readerSteps, auditReportView("overview"), guarded("overview", getReportingOverview));
-router.get("/trends", ...readerSteps, guarded("trends", getReportingTrends));
-router.get("/hostel", ...readerSteps, guarded("hostel", getReportingHostel));
+router.get("/overview", ...readerSteps, auditReportView("overview"), guarded("overview", cachedReport("overview", getReportingOverview)));
+router.get("/trends", ...readerSteps, guarded("trends", cachedReport("trends", getReportingTrends)));
+router.get("/hostel", ...readerSteps, guarded("hostel", cachedReport("hostel", getReportingHostel)));
 router.get("/records", ...readerSteps, auditReportView("records"), guarded("records", getReportingRecords));
-router.get("/attention", ...readerSteps, guarded("attention", getReportingAttention));
-router.get("/anomalies", ...readerSteps, guarded("anomalies", getReportingAnomalies));
+router.get("/attention", ...readerSteps, guarded("attention", cachedReport("attention", getReportingAttention)));
+router.get("/anomalies", ...readerSteps, guarded("anomalies", cachedReport("anomalies", getReportingAnomalies)));
 router.get("/export", ...exportSteps, guarded("export", exportReport));
 router.get("/saved", ...savedSteps, guarded("saved-list", listSavedReports));
 router.post("/saved", ...savedSteps, guarded("saved-create", createSavedReport));

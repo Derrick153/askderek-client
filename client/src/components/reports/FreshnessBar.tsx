@@ -73,8 +73,8 @@ export function FreshnessBar({ summary, stamps, isFetching, onRefresh }: BarProp
         </div>
       ) : null}
       <p className="text-xs text-gray-400">
-        Money, bookings, beds and the lists below are worked out live each time you open or refresh this page. Occupancy
-        over time uses a record saved each night.
+        Money, bookings, beds and the lists below are worked out when you open or refresh this page (the server may reuse an answer it worked out
+        in the last minute; Refresh always works out a new one). Occupancy over time uses a record saved each night.
       </p>
       {stale ? (
         <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3">

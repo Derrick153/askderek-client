@@ -10,6 +10,7 @@ import {
   useGetReportingHostelQuery,
   useGetReportingAttentionQuery,
   useGetReportingAnomaliesQuery,
+  askReportsFresh,
 } from "@/state/api";
 import type { ReportingOverview, ReportingTrends } from "@/state/api";
 import {
@@ -189,6 +190,7 @@ export default function ManagerReportsPage() {
           />
         <button
           onClick={() => {
+            askReportsFresh();
             refetch();
             if (data) refetchTrends();
             if (data) refetchHostel();
@@ -242,6 +244,7 @@ export default function ManagerReportsPage() {
           stamps={[data.generatedAt, trends?.generatedAt, hostel?.generatedAt, attention?.asOf, anomalies?.asOf]}
           isFetching={isFetching || hostelFetching || attentionFetching || anomaliesFetching}
           onRefresh={() => {
+            askReportsFresh();
             refetch();
             if (data) refetchTrends();
             if (data) refetchHostel();

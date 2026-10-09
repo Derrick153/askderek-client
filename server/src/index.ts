@@ -37,6 +37,7 @@ import verifyRoutes         from "./routes/verifyRoutes";
 import auditRoutes          from "./routes/auditRoutes";
 
 import reportingRoutes from "./routes/reportingRoutes";
+import { reportTiming } from "./lib/reportPerf";
 // â”€â”€ JOBS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Phase 1 and 2 jobs
 import { startOverduePaymentJob } from "./jobs/overduePaymentJob";
@@ -178,7 +179,7 @@ app.use("/api/advance-payments",  advancePaymentRoutes);
 app.use("/api/lease-expiry",      leaseExpiryRoutes);
 app.use("/api/verify",            verifyRoutes);
 app.use("/api/audit",             auditRoutes);
-app.use("/api/reports", reportingRoutes);
+app.use("/api/reports", reportTiming, reportingRoutes);
 
 // â”€â”€ HEALTH CHECK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Public endpoint â€” no auth required.
